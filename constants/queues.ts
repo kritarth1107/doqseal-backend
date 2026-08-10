@@ -1,0 +1,1 @@
+export const EXTRACTION_QUEUE = process.env.EXTRACTION_QUEUE || 'extraction.jobs';
