@@ -1,0 +1,94 @@
+# DoqSeal production stack — deploy in India VPC (Mumbai / ap-south-1)
+# Set secrets via .env.prod; never commit credentials.
+
+services:
+  mongodb:
+    image: mongo:7
+    restart: always
+    volumes:
+      - mongo_data:/data/db
+    environment:
+      MONGO_INITDB_DATABASE: doqseal
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    restart: always
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-doqseal}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS}
+    volumes:
+      - rabbit_data:/var/lib/rabbitmq
+
+  qdrant:
+    image: qdrant/qdrant:v1.13.2
+    restart: always
+    volumes:
+      - qdrant_data:/qdrant/storage
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    restart: always
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    volumes:
+      - minio_data:/data
+
+  backend:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    restart: always
+    depends_on: [mongodb, rabbitmq]
+    environment:
+      NODE_ENV: production
+      PORT: 3030
+      MONGODB_URI: mongodb://mongodb:27017/doqseal
+      AMQP_URI: amqp://${RABBITMQ_USER:-doqseal}:${RABBITMQ_PASS}@rabbitmq:5672
+      AI_ENGINE_URL: http://ai-engine:3031
+      AES_SECRET: ${AES_SECRET}
+      JWT_SECRET: ${JWT_SECRET}
+      RESEND_API: ${RESEND_API}
+      MSG91_API_KEY: ${MSG91_API_KEY:-}
+      LIVE_FRONTEND_URL: ${LIVE_FRONTEND_URL}
+      CORS_ORIGINS: ${CORS_ORIGINS}
+      STORAGE_ROOT: /data/storage
+    volumes:
+      - storage_data:/data/storage
+
+  ai-engine:
+    build:
+      context: ../main-backend
+      dockerfile: Dockerfile
+    restart: always
+    depends_on: [mongodb, rabbitmq, qdrant]
+    environment:
+      MONGODB_URI: mongodb://mongodb:27017/doqseal
+      AMQP_URI: amqp://${RABBITMQ_USER:-doqseal}:${RABBITMQ_PASS}@rabbitmq:5672
+      QDRANT_URL: http://qdrant:6333
+      AES_SECRET: ${AES_SECRET}
+      STORAGE_ROOT: /data/storage
+      OLLAMA_URL: ${OLLAMA_URL:-http://host.docker.internal:11434}
+    volumes:
+      - storage_data:/data/storage
+
+  frontend:
+    build:
+      context: ../front-end
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
+    restart: always
+    depends_on: [backend]
+    environment:
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
+    ports:
+      - "3000:3000"
+
+volumes:
+  mongo_data:
+  rabbit_data:
+  qdrant_data:
+  minio_data:
+  storage_data:
