@@ -25,9 +25,9 @@ export class MediaUtil {
       const blob = new Blob([new Uint8Array(fileBuffer)], { type: mimeType });
       formData.append('file', blob, uniqueFileName);
 
-      const response = await axios.post(config.media.uploadUrl, formData, {
+      const response = await axios.post(config.media?.uploadUrl || '', formData, {
         headers: {
-          'x-api-key': config.media.apiKey,
+          'x-api-key': config.media?.apiKey || '',
           'Content-Type': 'multipart/form-data'
         }
       });

@@ -1,4 +1,5 @@
 import { Resend } from 'resend';
+import axios from 'axios';
 import config from '../config/app.config';
 
 // Initialize the Resend client with API key from config
@@ -16,32 +17,106 @@ export interface SendEmailOptions {
 }
 
 export class EmailUtil {
+  private static useMsg91(): boolean {
+    return Boolean(process.env.MSG91_API_KEY);
+  }
+
+  private static parseFromAddress(from?: string): { name: string; email: string } {
+    const defaultFrom = 'Sakshya <no-reply@emails.sakshya.io>';
+    const fromAddress = from || defaultFrom;
+    const match = fromAddress.match(/^(.*?)<([^>]+)>$/);
+
+    if (match) {
+      return {
+        name: match[1].trim() || 'Sakshya',
+        email: match[2].trim(),
+      };
+    }
+
+    return {
+      name: 'Sakshya',
+      email: fromAddress,
+    };
+  }
+
+  private static async sendViaMsg91(options: SendEmailOptions): Promise<void> {
+    const apiKey = process.env.MSG91_API_KEY;
+    if (!apiKey) {
+      throw new Error('MSG91_API_KEY not configured');
+    }
+
+    const { name, email } = this.parseFromAddress(options.from);
+    const recipients = (Array.isArray(options.to) ? options.to : [options.to]).map(
+      (recipient) => ({
+        to: [{ email: recipient, name: '' }],
+      })
+    );
+
+    const payload: Record<string, unknown> = {
+      recipients,
+      from: { name, email },
+      domain: process.env.MSG91_DOMAIN || 'emails.sakshya.io',
+      subject: options.subject,
+    };
+
+    if (process.env.MSG91_TEMPLATE_ID) {
+      payload.template_id = process.env.MSG91_TEMPLATE_ID;
+      payload.variables = {
+        subject: options.subject,
+        body: options.html || options.text || '',
+      };
+    } else {
+      payload.body = options.html || options.text || '';
+    }
+
+    await axios.post('https://control.msg91.com/api/v5/email/send', payload, {
+      headers: {
+        accept: 'application/json',
+        authkey: apiKey,
+        'content-type': 'application/json',
+      },
+      timeout: 15_000,
+    });
+
+    const recipientStr = Array.isArray(options.to) ? options.to.join(', ') : options.to;
+    console.log(`📩 Email sent successfully via MSG91 to ${recipientStr}`);
+  }
+
+  private static async sendViaResend(options: SendEmailOptions): Promise<void> {
+    const fromAddress = options.from || `Sakshya <no-reply@emails.sakshya.io>`;
+
+    const { data, error } = await resend.emails.send({
+      from: fromAddress,
+      to: options.to,
+      subject: options.subject,
+      text: options.text || '',
+      html: options.html as string,
+      cc: options.cc,
+      bcc: options.bcc,
+      attachments: options.attachments,
+    });
+
+    if (error) {
+      throw error;
+    }
+
+    const recipientStr = Array.isArray(options.to) ? options.to.join(', ') : options.to;
+    console.log(`📩 Email sent successfully via Resend to ${recipientStr}. ID: ${data?.id}`);
+  }
+
   /**
-   * General-purpose email sender using Resend.
+   * General-purpose email sender using MSG91 when configured, otherwise Resend.
    */
   public static async sendEmail(options: SendEmailOptions): Promise<void> {
     try {
-      const fromAddress = options.from || `Sakshya <no-reply@emails.sakshya.io>`;
-
-      const { data, error } = await resend.emails.send({
-        from: fromAddress,
-        to: options.to,
-        subject: options.subject,
-        text: options.text || '',
-        html: options.html as string,
-        cc: options.cc,
-        bcc: options.bcc,
-        attachments: options.attachments,
-      });
-
-      if (error) {
-        throw error;
+      if (this.useMsg91()) {
+        await this.sendViaMsg91(options);
+      } else {
+        await this.sendViaResend(options);
       }
-
-      const recipientStr = Array.isArray(options.to) ? options.to.join(', ') : options.to;
-      console.log(`📩 Email sent successfully via Resend to ${recipientStr}. ID: ${data?.id}`);
     } catch (error) {
-      console.error(`❌ Error sending email via Resend:`, error);
+      const provider = this.useMsg91() ? 'MSG91' : 'Resend';
+      console.error(`❌ Error sending email via ${provider}:`, error);
       throw error;
     }
   }

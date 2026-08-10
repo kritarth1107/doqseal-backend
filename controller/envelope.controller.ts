@@ -170,6 +170,94 @@ export class EnvelopeController {
       );
     }
   }
+
+  public async getByToken(request: FastifyRequest, reply: FastifyReply) {
+    const { token } = request.params as { token: string };
+
+    try {
+      const envelope = await envelopeService.getEnvelopeByToken(token);
+
+      return responseUtil.success(
+        reply,
+        'Envelope retrieved successfully',
+        envelope
+      );
+    } catch (error: any) {
+      const status =
+        error.message === 'Signing link not found or expired' ||
+        error.message === 'Signer not found' ||
+        error.message === 'Envelope is not available for signing'
+          ? 404
+          : 500;
+
+      return responseUtil.error(
+        reply,
+        error.message || 'Failed to retrieve envelope',
+        status
+      );
+    }
+  }
+
+  public async getFileByToken(request: FastifyRequest, reply: FastifyReply) {
+    const { token } = request.params as { token: string };
+
+    try {
+      const file = await envelopeService.getEnvelopeFileByToken(token);
+
+      return reply
+        .header('Content-Type', file.mimeType)
+        .header(
+          'Content-Disposition',
+          `inline; filename="${file.filename.replace(/"/g, '')}"`
+        )
+        .send(file.buffer);
+    } catch (error: any) {
+      const status =
+        error.message === 'Signing link not found or expired' ||
+        error.message === 'Document not found' ||
+        error.message === 'Envelope is not available for signing'
+          ? 404
+          : 500;
+
+      return responseUtil.error(
+        reply,
+        error.message || 'Failed to retrieve document',
+        status
+      );
+    }
+  }
+
+  public async sign(request: FastifyRequest, reply: FastifyReply) {
+    const { token } = request.params as { token: string };
+    const body = request.body as { fieldValues?: Record<string, string> };
+
+    try {
+      const result = await envelopeService.signEnvelope(
+        token,
+        body.fieldValues || {}
+      );
+
+      return responseUtil.success(reply, 'Envelope signed successfully', result);
+    } catch (error: any) {
+      const status =
+        error.message === 'Signing link not found or expired' ||
+        error.message === 'Signer not found' ||
+        error.message === 'Envelope is not available for signing'
+          ? 404
+          : error.message === 'Already signed'
+            ? 409
+            : error.message?.includes('required') ||
+                error.message?.includes('cannot sign')
+              ? 400
+              : 500;
+
+      return responseUtil.error(
+        reply,
+        error.message || 'Failed to sign envelope',
+        status
+      );
+    }
+  }
 }
 
 export default new EnvelopeController();

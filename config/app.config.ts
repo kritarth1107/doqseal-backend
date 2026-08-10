@@ -109,6 +109,11 @@ const config: AppConfig = {
     aiEngine: {
         url: process.env.AI_ENGINE_URL || 'http://localhost:3031',
     },
+
+    media: {
+        uploadUrl: process.env.MEDIA_UPLOAD_URL,
+        apiKey: process.env.MEDIA_API_KEY,
+    },
  
    
 };

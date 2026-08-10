@@ -80,18 +80,33 @@ export class DocumentController {
 
   public async list(request: FastifyRequest, reply: FastifyReply) {
     const sessionUser = (request as any).user;
-    const { projectId } = request.query as { projectId?: string };
+    const { projectId, limit } = request.query as {
+      projectId?: string;
+      limit?: string;
+    };
 
     try {
-      if (!projectId) {
-        return responseUtil.error(reply, 'projectId query param is required', 400);
+      const organisationId = resolveOrganisationId(request);
+
+      if (projectId) {
+        const documents = await documentService.listDocuments(
+          sessionUser.userId,
+          organisationId,
+          projectId
+        );
+
+        return responseUtil.success(
+          reply,
+          'Documents retrieved successfully',
+          documents
+        );
       }
 
-      const organisationId = resolveOrganisationId(request);
-      const documents = await documentService.listDocuments(
+      const parsedLimit = limit ? Number(limit) : undefined;
+      const documents = await documentService.listAllDocuments(
         sessionUser.userId,
         organisationId,
-        projectId
+        { limit: parsedLimit }
       );
 
       return responseUtil.success(

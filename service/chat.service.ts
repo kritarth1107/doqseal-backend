@@ -1,6 +1,7 @@
 import axios from 'axios';
 import config from '../config/app.config';
 import { assertUserInOrganisation } from '../utils/org-access.util';
+import auditService from './audit.service';
 
 export interface ChatPayload {
   message: string;
@@ -42,7 +43,21 @@ export class ChatService {
         { timeout: 120_000 }
       );
 
-      return response.data;
+      const result = response.data;
+
+      await auditService.logEvent({
+        actorId: userId,
+        organisationId: payload.organisationId,
+        action: 'chat.query',
+        resourceType: 'project',
+        resourceId: payload.projectId || payload.organisationId,
+        metadata: {
+          mode: result.mode,
+          citationCount: result.citations?.length ?? 0,
+        },
+      });
+
+      return result;
     } catch (error: any) {
       const status = error.response?.status;
       const detail =

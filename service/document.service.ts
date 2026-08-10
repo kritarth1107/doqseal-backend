@@ -1,16 +1,18 @@
 import crypto from 'crypto';
 import path from 'path';
 import fs from 'fs/promises';
+import axios from 'axios';
 import Document from '../model/document.model';
 import Project from '../model/project.model';
 import Extraction from '../model/extraction.model';
 import ExtractionJob from '../model/extractionJob.model';
 import { v4 as uuidv4 } from 'uuid';
 import StorageUtil from '../utils/storage.util';
-import { assertUserInOrganisation } from '../utils/org-access.util';
+import { assertUserInOrganisation, assertOrgRole } from '../utils/org-access.util';
 import jobService from './job.service';
 import quotaService from './quota.service';
 import auditService from './audit.service';
+import config from '../config/app.config';
 import {
   decryptBuffer,
   encryptBuffer,
@@ -283,7 +285,7 @@ export class DocumentService {
     organisationId: string,
     documentId: string
   ) {
-    await assertUserInOrganisation(userId, organisationId);
+    await assertOrgRole(userId, organisationId, 'admin');
 
     const document = await Document.findOne({
       documentId,
@@ -301,11 +303,73 @@ export class DocumentService {
       // File may already be missing
     }
 
+    await Promise.all([
+      Extraction.deleteMany({ documentId }),
+      ExtractionJob.deleteMany({ documentId }),
+    ]);
+
+    try {
+      const baseUrl = config.aiEngine.url.replace(/\/$/, '');
+      await axios.delete(`${baseUrl}/rag/documents/${documentId}`, {
+        params: { organisationId },
+        timeout: 15_000,
+      });
+    } catch (error) {
+      console.warn('RAG cascade delete failed:', error);
+    }
+
     document.deletedAt = new Date();
     document.status = 'failed';
     await document.save();
 
+    await auditService.logEvent({
+      actorId: userId,
+      organisationId,
+      action: 'document.delete',
+      resourceType: 'document',
+      resourceId: documentId,
+      metadata: {
+        projectId: document.projectId,
+        originalFilename: document.originalFilename,
+      },
+    });
+
     return { documentId, deleted: true };
+  }
+
+  public async listAllDocuments(
+    userId: string,
+    organisationId: string,
+    options: { projectId?: string; limit?: number } = {}
+  ) {
+    await assertUserInOrganisation(userId, organisationId);
+
+    const filter: Record<string, unknown> = {
+      organisationId,
+      deletedAt: null,
+    };
+
+    if (options.projectId) {
+      filter.projectId = options.projectId;
+    }
+
+    const limit = Math.min(Math.max(options.limit ?? 100, 1), 500);
+
+    const documents = await Document.find(filter)
+      .sort({ createdAt: -1 })
+      .limit(limit)
+      .lean();
+
+    return documents.map((doc) => ({
+      documentId: doc.documentId,
+      projectId: doc.projectId,
+      originalFilename: doc.originalFilename,
+      mimeType: doc.mimeType,
+      size: doc.size,
+      status: doc.status,
+      createdAt: doc.createdAt,
+      updatedAt: doc.updatedAt,
+    }));
   }
 }
 

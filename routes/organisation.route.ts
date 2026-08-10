@@ -17,6 +17,9 @@ export const organisationRouter: FastifyPluginAsync = async (fastify: FastifyIns
 
   // GET /api/v1/organisations/:organisationId
   fastify.get('/:organisationId', organisationController.getDetails);
+
+  // DELETE /api/v1/organisations/:id/data-subject/:email
+  fastify.delete('/:id/data-subject/:email', organisationController.eraseDataSubject);
 };
 
 export default organisationRouter;

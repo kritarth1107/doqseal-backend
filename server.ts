@@ -21,11 +21,14 @@ import { authRouter } from './routes/auth.route';
 import { userRouter } from './routes/user.route';
 import { apiKeyRouter } from './routes/apiKey.route';
 import { organisationRouter } from './routes/organisation.route';
+import { membershipRouter } from './routes/membership.route';
+import { inviteRouter } from './routes/invite.route';
 import { projectRouter } from './routes/project.route';
 import { documentRouter } from './routes/document.route';
 import { jobRouter } from './routes/job.route';
 import { auditRouter } from './routes/audit.route';
 import { envelopeRouter } from './routes/envelope.route';
+import { envelopePublicRouter } from './routes/envelopePublic.route';
 import { chatRouter } from './routes/chat.route';
 
 
@@ -123,11 +126,14 @@ export class ServerSetup {
     this.app.register(userRouter, { prefix: `/${apiPrefix}/user` });
     this.app.register(apiKeyRouter, { prefix: `/${apiPrefix}/api-wickets` });
     this.app.register(organisationRouter, { prefix: `/${apiPrefix}/organisations` });
+    this.app.register(membershipRouter, { prefix: `/${apiPrefix}/organisations` });
+    this.app.register(inviteRouter, { prefix: `/${apiPrefix}/invites` });
     this.app.register(auditRouter, { prefix: `/${apiPrefix}/organisations` });
     this.app.register(projectRouter, { prefix: `/${apiPrefix}/projects` });
     this.app.register(documentRouter, { prefix: `/${apiPrefix}/documents` });
     this.app.register(jobRouter, { prefix: `/${apiPrefix}/jobs` });
     this.app.register(envelopeRouter, { prefix: `/${apiPrefix}/envelopes` });
+    this.app.register(envelopePublicRouter, { prefix: `/${apiPrefix}/envelopes` });
     this.app.register(chatRouter, { prefix: `/${apiPrefix}/chat` });
 
 

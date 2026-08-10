@@ -53,6 +53,11 @@ export interface AiEngineConfig {
     url: string;
 }
 
+export interface MediaConfig {
+    uploadUrl?: string;
+    apiKey?: string;
+}
+
 export interface AppConfig {
     server: ServerConfig;
     jwt: JWTConfig;
@@ -64,4 +69,5 @@ export interface AppConfig {
     rabbitmq?: { uri: string; extractionQueue: string };
     storage: StorageConfig;
     aiEngine: AiEngineConfig;
+    media?: MediaConfig;
 }
