@@ -26,6 +26,7 @@ import { documentRouter } from './routes/document.route';
 import { jobRouter } from './routes/job.route';
 import { auditRouter } from './routes/audit.route';
 import { envelopeRouter } from './routes/envelope.route';
+import { chatRouter } from './routes/chat.route';
 
 
 
@@ -127,6 +128,7 @@ export class ServerSetup {
     this.app.register(documentRouter, { prefix: `/${apiPrefix}/documents` });
     this.app.register(jobRouter, { prefix: `/${apiPrefix}/jobs` });
     this.app.register(envelopeRouter, { prefix: `/${apiPrefix}/envelopes` });
+    this.app.register(chatRouter, { prefix: `/${apiPrefix}/chat` });
 
 
 

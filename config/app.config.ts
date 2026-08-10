@@ -105,6 +105,10 @@ const config: AppConfig = {
     storage: {
         root: process.env.STORAGE_ROOT || '../storage',
     },
+
+    aiEngine: {
+        url: process.env.AI_ENGINE_URL || 'http://localhost:3031',
+    },
  
    
 };

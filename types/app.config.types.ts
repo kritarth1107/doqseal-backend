@@ -49,6 +49,10 @@ export interface StorageConfig {
     root: string;
 }
 
+export interface AiEngineConfig {
+    url: string;
+}
+
 export interface AppConfig {
     server: ServerConfig;
     jwt: JWTConfig;
@@ -59,4 +63,5 @@ export interface AppConfig {
     email: EmailConfig;
     rabbitmq?: { uri: string; extractionQueue: string };
     storage: StorageConfig;
+    aiEngine: AiEngineConfig;
 }
