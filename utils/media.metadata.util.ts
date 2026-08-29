@@ -1,4 +1,4 @@
-import sizeOf from 'image-size';
+import sizeOf from 'image-size-next';
 import * as MP4Box from 'mp4box';
 
 /**
