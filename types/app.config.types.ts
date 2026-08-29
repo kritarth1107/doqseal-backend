@@ -47,6 +47,8 @@ export interface EmailConfig {
 
 export interface StorageConfig {
     root: string;
+    azureConnectionString?: string;
+    azureContainer?: string;
 }
 
 export interface AiEngineConfig {
@@ -56,6 +58,10 @@ export interface AiEngineConfig {
 export interface MediaConfig {
     uploadUrl?: string;
     apiKey?: string;
+}
+
+export interface FeaturesConfig {
+    esignEnabled: boolean;
 }
 
 export interface AppConfig {
@@ -70,4 +76,5 @@ export interface AppConfig {
     storage: StorageConfig;
     aiEngine: AiEngineConfig;
     media?: MediaConfig;
+    features: FeaturesConfig;
 }

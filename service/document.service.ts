@@ -1,13 +1,17 @@
-import crypto from 'crypto';
+﻿import crypto from 'crypto';
 import path from 'path';
-import fs from 'fs/promises';
 import axios from 'axios';
 import Document from '../model/document.model';
 import Project from '../model/project.model';
 import Extraction from '../model/extraction.model';
 import ExtractionJob from '../model/extractionJob.model';
 import { v4 as uuidv4 } from 'uuid';
-import StorageUtil from '../utils/storage.util';
+import {
+  buildObjectKey,
+  deleteEncryptedObject,
+  getEncryptedObject,
+  putEncryptedObject,
+} from '../utils/blob-storage.util';
 import { assertUserInOrganisation, assertOrgRole } from '../utils/org-access.util';
 import jobService from './job.service';
 import quotaService from './quota.service';
@@ -71,17 +75,11 @@ export class DocumentService {
 
     const documentId = uuidv4();
     const extension = path.extname(originalFilename) || '.pdf';
-    const storagePath = StorageUtil.buildOriginalPath(
+    const objectKey = buildObjectKey(
       organisationId,
       projectId,
       documentId,
       `${extension}.enc`
-    );
-
-    await StorageUtil.ensureDocumentDir(
-      organisationId,
-      projectId,
-      documentId
     );
 
     const contentHash = crypto
@@ -90,7 +88,7 @@ export class DocumentService {
       .digest('hex');
 
     const envelope = encryptBuffer(buffer, organisationId);
-    await fs.writeFile(storagePath, envelope.ciphertext);
+    const stored = await putEncryptedObject(objectKey, envelope.ciphertext);
 
     const document = await Document.create({
       documentId,
@@ -99,7 +97,9 @@ export class DocumentService {
       originalFilename,
       mimeType,
       size: buffer.length,
-      storagePath,
+      storagePath: stored.storagePath,
+      storageUri: stored.storageUri,
+      storageProvider: stored.storageProvider,
       contentHash,
       isEncrypted: true,
       encryption: {
@@ -128,6 +128,7 @@ export class DocumentService {
         mimeType,
         size: buffer.length,
         consentGivenAt: consentGivenAt ?? null,
+        storageProvider: stored.storageProvider,
       },
     });
 
@@ -251,7 +252,11 @@ export class DocumentService {
       throw new Error('Document not found');
     }
 
-    const encryptedBytes = await fs.readFile(document.storagePath);
+    const encryptedBytes = await getEncryptedObject({
+      storagePath: document.storagePath,
+      storageUri: document.storageUri,
+      storageProvider: document.storageProvider,
+    });
 
     if (!document.isEncrypted || !document.encryption) {
       return {
@@ -298,9 +303,13 @@ export class DocumentService {
     }
 
     try {
-      await fs.unlink(document.storagePath);
+      await deleteEncryptedObject({
+        storagePath: document.storagePath,
+        storageUri: document.storageUri,
+        storageProvider: document.storageProvider,
+      });
     } catch {
-      // File may already be missing
+      // Object may already be missing
     }
 
     await Promise.all([

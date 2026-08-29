@@ -14,7 +14,11 @@ export interface IDocument extends MongooseDocument {
   originalFilename: string;
   mimeType: string;
   size: number;
+  /** Blob object key (preferred) or legacy absolute local path */
   storagePath: string;
+  /** Full HTTPS blob URI (no SAS) when using Azure Blob */
+  storageUri?: string | null;
+  storageProvider?: 'azure-blob' | 'local' | null;
   contentHash?: string;
   isEncrypted: boolean;
   encryption?: {
@@ -65,6 +69,15 @@ const DocumentSchema: Schema = new Schema(
     storagePath: {
       type: String,
       required: true,
+    },
+    storageUri: {
+      type: String,
+      default: null,
+    },
+    storageProvider: {
+      type: String,
+      enum: ['azure-blob', 'local'],
+      default: null,
     },
     contentHash: {
       type: String,

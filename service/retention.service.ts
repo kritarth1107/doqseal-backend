@@ -1,5 +1,4 @@
 import axios from 'axios';
-import fs from 'fs/promises';
 import Organisation from '../model/organisation.model';
 import Document from '../model/document.model';
 import Extraction from '../model/extraction.model';
@@ -9,6 +8,7 @@ import Membership from '../model/membership.model';
 import User from '../model/user.model';
 import auditService from './audit.service';
 import config from '../config/app.config';
+import { deleteEncryptedObject } from '../utils/blob-storage.util';
 
 const DEFAULT_RETENTION_DAYS = 365;
 const REDACTED = '[redacted]';
@@ -42,9 +42,13 @@ export class RetentionService {
 
     for (const document of expiredDocuments) {
       try {
-        await fs.unlink(document.storagePath);
+        await deleteEncryptedObject({
+          storagePath: document.storagePath,
+          storageUri: document.storageUri,
+          storageProvider: document.storageProvider,
+        });
       } catch {
-        // File may already be missing
+        // Object may already be missing
       }
 
       await Promise.all([

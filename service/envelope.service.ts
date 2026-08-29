@@ -1,5 +1,4 @@
 import crypto from 'crypto';
-import fs from 'fs/promises';
 import { v4 as uuidv4 } from 'uuid';
 import Envelope, {
   EnvelopeSignerRole,
@@ -10,8 +9,16 @@ import Document from '../model/document.model';
 import { assertUserInOrganisation } from '../utils/org-access.util';
 import EmailUtil from '../utils/email.util';
 import { decryptBuffer } from '../utils/envelope-encryption.util';
+import { getEncryptedObject } from '../utils/blob-storage.util';
+import config from '../config/app.config';
 
 export class EnvelopeService {
+  private assertEsignEnabled() {
+    if (!config.features.esignEnabled) {
+      throw new Error('E-sign is disabled');
+    }
+  }
+
   public async createEnvelope(params: {
     userId: string;
     organisationId: string;
@@ -36,6 +43,7 @@ export class EnvelopeService {
       required?: boolean;
     }[];
   }) {
+    this.assertEsignEnabled();
     const {
       userId,
       organisationId,
@@ -116,6 +124,7 @@ export class EnvelopeService {
   }
 
   public async listEnvelopes(userId: string, organisationId: string) {
+    this.assertEsignEnabled();
     await assertUserInOrganisation(userId, organisationId);
 
     const envelopes = await Envelope.find({
@@ -133,6 +142,7 @@ export class EnvelopeService {
     organisationId: string,
     envelopeId: string
   ) {
+    this.assertEsignEnabled();
     await assertUserInOrganisation(userId, organisationId);
 
     const envelope = await Envelope.findOne({
@@ -153,6 +163,7 @@ export class EnvelopeService {
     organisationId: string,
     envelopeId: string
   ) {
+    this.assertEsignEnabled();
     await assertUserInOrganisation(userId, organisationId);
 
     const envelope = await Envelope.findOne({
@@ -247,6 +258,7 @@ export class EnvelopeService {
   }
 
   public async getEnvelopeByToken(accessToken: string) {
+    this.assertEsignEnabled();
     const envelope = await Envelope.findOne({
       'signers.accessToken': accessToken,
       deletedAt: null,
@@ -301,6 +313,7 @@ export class EnvelopeService {
   }
 
   public async getEnvelopeFileByToken(accessToken: string) {
+    this.assertEsignEnabled();
     const envelope = await Envelope.findOne({
       'signers.accessToken': accessToken,
       deletedAt: null,
@@ -324,7 +337,11 @@ export class EnvelopeService {
       throw new Error('Document not found');
     }
 
-    const encryptedBytes = await fs.readFile(document.storagePath);
+    const encryptedBytes = await getEncryptedObject({
+      storagePath: document.storagePath,
+      storageUri: document.storageUri,
+      storageProvider: document.storageProvider,
+    });
 
     if (!document.isEncrypted || !document.encryption) {
       return {
@@ -357,6 +374,7 @@ export class EnvelopeService {
     accessToken: string,
     fieldValues: Record<string, string> = {}
   ) {
+    this.assertEsignEnabled();
     const envelope = await Envelope.findOne({
       'signers.accessToken': accessToken,
       deletedAt: null,

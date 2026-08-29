@@ -104,6 +104,8 @@ const config: AppConfig = {
 
     storage: {
         root: process.env.STORAGE_ROOT || '../storage',
+        azureConnectionString: process.env.AZURE_STORAGE_CONNECTION_STRING,
+        azureContainer: process.env.AZURE_STORAGE_CONTAINER || 'documents',
     },
 
     aiEngine: {
@@ -114,8 +116,10 @@ const config: AppConfig = {
         uploadUrl: process.env.MEDIA_UPLOAD_URL,
         apiKey: process.env.MEDIA_API_KEY,
     },
- 
-   
+
+    features: {
+        esignEnabled: process.env.ESIGN_ENABLED === 'true',
+    },
 };
 
 // ==================================================
