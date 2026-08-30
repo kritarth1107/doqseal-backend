@@ -6,72 +6,113 @@ import responseUtil from '../utils/response.util';
 import { assertOrgRole } from '../utils/org-access.util';
 import auditService from '../service/audit.service';
 
+function assertOrganisationAccess(
+  sessionUser: any,
+  organisationId: string
+): boolean {
+  return Boolean(
+    sessionUser?.organisations?.some(
+      (o: any) => o.organisationId === organisationId
+    )
+  );
+}
+
 /**
- * Organisation Controller - Handles organisation-related HTTP requests
+ * Organisation Controller - Handles organisation-related HTTP requests.
+ * Handlers are arrow properties so Fastify route registration keeps `this` intact.
  */
 export class OrganisationController {
-  private assertOrganisationAccess(
-    sessionUser: any,
-    organisationId: string
-  ): boolean {
-    return sessionUser.organisations?.some(
-      (o: any) => o.organisationId === organisationId
-    );
-  }
-
-  /**
-   * Get detailed information about an organisation
-   */
-  public async getDetails(request: FastifyRequest, reply: FastifyReply) {
+  public getDetails = async (request: FastifyRequest, reply: FastifyReply) => {
     const { organisationId } = request.params as { organisationId: string };
     const sessionUser = (request as any).user;
 
     try {
-      if (!this.assertOrganisationAccess(sessionUser, organisationId)) {
-        return responseUtil.error(reply, 'You do not have access to this organisation', 403);
+      if (!assertOrganisationAccess(sessionUser, organisationId)) {
+        return responseUtil.error(
+          reply,
+          'You do not have access to this organisation',
+          403
+        );
       }
 
-      const details = await organisationService.getOrganisationDetails(organisationId);
-      return responseUtil.success(reply, 'Organisation details retrieved successfully', details);
+      const details =
+        await organisationService.getOrganisationDetails(organisationId);
+      return responseUtil.success(
+        reply,
+        'Organisation details retrieved successfully',
+        details
+      );
     } catch (error: any) {
-      return responseUtil.error(reply, error.message || 'Failed to retrieve organisation details', 500);
+      return responseUtil.error(
+        reply,
+        error.message || 'Failed to retrieve organisation details',
+        500
+      );
     }
-  }
+  };
 
-  public async getUsage(request: FastifyRequest, reply: FastifyReply) {
+  public getUsage = async (request: FastifyRequest, reply: FastifyReply) => {
     const { organisationId } = request.params as { organisationId: string };
     const sessionUser = (request as any).user;
 
     try {
-      if (!this.assertOrganisationAccess(sessionUser, organisationId)) {
-        return responseUtil.error(reply, 'You do not have access to this organisation', 403);
+      if (!assertOrganisationAccess(sessionUser, organisationId)) {
+        return responseUtil.error(
+          reply,
+          'You do not have access to this organisation',
+          403
+        );
       }
 
       const usage = await quotaService.getUsage(organisationId);
-      return responseUtil.success(reply, 'Organisation usage retrieved successfully', usage);
+      return responseUtil.success(
+        reply,
+        'Organisation usage retrieved successfully',
+        usage
+      );
     } catch (error: any) {
-      return responseUtil.error(reply, error.message || 'Failed to retrieve organisation usage', 500);
+      return responseUtil.error(
+        reply,
+        error.message || 'Failed to retrieve organisation usage',
+        500
+      );
     }
-  }
+  };
 
-  public async getStats(request: FastifyRequest, reply: FastifyReply) {
+  public getStats = async (request: FastifyRequest, reply: FastifyReply) => {
     const { organisationId } = request.params as { organisationId: string };
     const sessionUser = (request as any).user;
 
     try {
-      if (!this.assertOrganisationAccess(sessionUser, organisationId)) {
-        return responseUtil.error(reply, 'You do not have access to this organisation', 403);
+      if (!assertOrganisationAccess(sessionUser, organisationId)) {
+        return responseUtil.error(
+          reply,
+          'You do not have access to this organisation',
+          403
+        );
       }
 
-      const stats = await organisationService.getOrganisationStats(organisationId);
-      return responseUtil.success(reply, 'Organisation stats retrieved successfully', stats);
+      const stats =
+        await organisationService.getOrganisationStats(organisationId);
+      return responseUtil.success(
+        reply,
+        'Organisation stats retrieved successfully',
+        stats
+      );
     } catch (error: any) {
       const status = error.message === 'Organisation not found' ? 404 : 500;
-      return responseUtil.error(reply, error.message || 'Failed to retrieve organisation stats', status);
+      return responseUtil.error(
+        reply,
+        error.message || 'Failed to retrieve organisation stats',
+        status
+      );
     }
-  }
+  };
 
-  public async eraseDataSubject(request: FastifyRequest, reply: FastifyReply) {
+  public eraseDataSubject = async (
+    request: FastifyRequest,
+    reply: FastifyReply
+  ) => {
     const sessionUser = (request as any).user;
     const { id, email } = request.params as { id: string; email: string };
 
@@ -109,7 +150,7 @@ export class OrganisationController {
         status
       );
     }
-  }
+  };
 }
 
 export default new OrganisationController();
