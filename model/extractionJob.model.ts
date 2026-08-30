@@ -10,7 +10,7 @@ export interface IExtractionJob extends Document {
   jobId: string;
   documentId: string;
   organisationId: string;
-  projectId: string;
+  projectId?: string | null;
   status: ExtractionJobStatus;
   error?: string | null;
   startedAt?: Date | null;
@@ -39,7 +39,7 @@ const ExtractionJobSchema: Schema = new Schema(
     },
     projectId: {
       type: String,
-      required: true,
+      default: null,
       index: true,
     },
     status: {

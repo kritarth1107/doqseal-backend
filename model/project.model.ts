@@ -18,6 +18,8 @@ export interface IProject extends Document {
   crossFieldRules: Record<string, unknown>[];
   status: 'active' | 'archived';
   createdBy: string;
+  /** When false, only the creator can see this project within the org */
+  sharedWithOrganisation: boolean;
   deletedAt?: Date | null;
   createdAt: Date;
   updatedAt: Date;
@@ -81,6 +83,12 @@ const ProjectSchema: Schema = new Schema(
     createdBy: {
       type: String,
       required: true,
+      index: true,
+    },
+    sharedWithOrganisation: {
+      type: Boolean,
+      default: true,
+      index: true,
     },
     deletedAt: {
       type: Date,
@@ -95,6 +103,12 @@ const ProjectSchema: Schema = new Schema(
 );
 
 ProjectSchema.index({ organisationId: 1, status: 1, deletedAt: 1 });
+ProjectSchema.index({
+  organisationId: 1,
+  sharedWithOrganisation: 1,
+  createdBy: 1,
+  deletedAt: 1,
+});
 
 const Project = mongoose.model<IProject>('Project', ProjectSchema);
 

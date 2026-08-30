@@ -22,7 +22,7 @@ export const projectRouter: FastifyPluginAsync = async (
         summary: 'Create project',
         security: bearerSecurity,
         body: CreateProjectBody,
-        response: { 200: ApiSuccessSchema, ...errorResponses },
+        response: { 200: ApiSuccessSchema, 201: ApiSuccessSchema, ...errorResponses },
       },
     },
     projectController.create

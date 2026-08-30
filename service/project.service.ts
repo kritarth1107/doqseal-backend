@@ -1,6 +1,7 @@
 import Project, { IProject, IProjectField } from '../model/project.model';
 import { v4 as uuidv4 } from 'uuid';
 import { assertUserInOrganisation } from '../utils/org-access.util';
+import { visibilityFilter } from '../utils/visibility.util';
 
 export class ProjectService {
   public async createProject(params: {
@@ -11,6 +12,7 @@ export class ProjectService {
     extractionHint?: string;
     fields?: IProjectField[];
     crossFieldRules?: Record<string, unknown>[];
+    sharedWithOrganisation?: boolean;
   }) {
     const {
       userId,
@@ -24,6 +26,11 @@ export class ProjectService {
 
     await assertUserInOrganisation(userId, organisationId);
 
+    const sharedWithOrganisation =
+      typeof params.sharedWithOrganisation === 'boolean'
+        ? params.sharedWithOrganisation
+        : true;
+
     const project = await Project.create({
       projectId: uuidv4(),
       organisationId,
@@ -34,6 +41,7 @@ export class ProjectService {
       crossFieldRules: crossFieldRules || [],
       status: 'active',
       createdBy: userId,
+      sharedWithOrganisation,
     });
 
     return this.toPublic(project);
@@ -46,6 +54,7 @@ export class ProjectService {
       organisationId,
       deletedAt: null,
       status: 'active',
+      ...visibilityFilter(userId, 'createdBy'),
     })
       .sort({ updatedAt: -1 })
       .lean();
@@ -64,6 +73,7 @@ export class ProjectService {
       projectId,
       organisationId,
       deletedAt: null,
+      ...visibilityFilter(userId, 'createdBy'),
     }).lean();
 
     if (!project) {
@@ -97,6 +107,7 @@ export class ProjectService {
       crossFieldRules: project.crossFieldRules,
       status: project.status,
       createdBy: project.createdBy,
+      sharedWithOrganisation: project.sharedWithOrganisation !== false,
       createdAt: project.createdAt,
       updatedAt: project.updatedAt,
     };

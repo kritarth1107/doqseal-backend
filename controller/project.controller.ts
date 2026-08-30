@@ -18,6 +18,7 @@ export class ProjectController {
         extractionHint?: string;
         fields?: any[];
         crossFieldRules?: Record<string, unknown>[];
+        sharedWithOrganisation?: boolean;
       };
 
       if (!body.name || body.name.trim().length < 2) {
@@ -36,6 +37,7 @@ export class ProjectController {
         extractionHint: body.extractionHint,
         fields: body.fields,
         crossFieldRules: body.crossFieldRules,
+        sharedWithOrganisation: body.sharedWithOrganisation,
       });
 
       return responseUtil.success(

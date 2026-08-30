@@ -10,7 +10,8 @@ export type DocumentStatus =
 export interface IDocument extends MongooseDocument {
   documentId: string;
   organisationId: string;
-  projectId: string;
+  /** Null = organisation Drive / common library (no project) */
+  projectId?: string | null;
   originalFilename: string;
   mimeType: string;
   size: number;
@@ -30,6 +31,8 @@ export interface IDocument extends MongooseDocument {
   } | null;
   status: DocumentStatus;
   uploadedBy: string;
+  /** When false, only the uploader (within the org) can see this document */
+  sharedWithOrganisation: boolean;
   consentGivenAt?: Date | null;
   deletedAt?: Date | null;
   createdAt: Date;
@@ -51,7 +54,7 @@ const DocumentSchema: Schema = new Schema(
     },
     projectId: {
       type: String,
-      required: true,
+      default: null,
       index: true,
     },
     originalFilename: {
@@ -106,6 +109,12 @@ const DocumentSchema: Schema = new Schema(
     uploadedBy: {
       type: String,
       required: true,
+      index: true,
+    },
+    sharedWithOrganisation: {
+      type: Boolean,
+      default: false,
+      index: true,
     },
     consentGivenAt: {
       type: Date,
@@ -125,6 +134,12 @@ const DocumentSchema: Schema = new Schema(
 
 DocumentSchema.index({ organisationId: 1, projectId: 1, deletedAt: 1 });
 DocumentSchema.index({ projectId: 1, status: 1, deletedAt: 1 });
+DocumentSchema.index({
+  organisationId: 1,
+  sharedWithOrganisation: 1,
+  uploadedBy: 1,
+  deletedAt: 1,
+});
 
 const Document = mongoose.model<IDocument>('Document', DocumentSchema);
 

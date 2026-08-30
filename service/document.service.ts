@@ -13,6 +13,10 @@ import {
   putEncryptedObject,
 } from '../utils/blob-storage.util';
 import { assertUserInOrganisation, assertOrgRole } from '../utils/org-access.util';
+import {
+  COMMON_PROJECT_FOLDER,
+  visibilityFilter,
+} from '../utils/visibility.util';
 import jobService from './job.service';
 import quotaService from './quota.service';
 import auditService from './audit.service';
@@ -31,25 +35,46 @@ const ALLOWED_MIME_TYPES = new Set([
 
 const MAX_FILE_SIZE = 20 * 1024 * 1024;
 
+function toListItem(doc: any) {
+  return {
+    documentId: doc.documentId,
+    projectId: doc.projectId ?? null,
+    originalFilename: doc.originalFilename,
+    mimeType: doc.mimeType,
+    size: doc.size,
+    status: doc.status,
+    contentHash: doc.contentHash,
+    uploadedBy: doc.uploadedBy,
+    sharedWithOrganisation: doc.sharedWithOrganisation !== false,
+    createdAt: doc.createdAt,
+    updatedAt: doc.updatedAt,
+  };
+}
+
 export class DocumentService {
   public async uploadDocument(params: {
     userId: string;
     organisationId: string;
-    projectId: string;
+    projectId?: string | null;
     originalFilename: string;
     mimeType: string;
     buffer: Buffer;
     consentGivenAt?: Date | null;
+    sharedWithOrganisation?: boolean;
   }) {
     const {
       userId,
       organisationId,
-      projectId,
       originalFilename,
       mimeType,
       buffer,
       consentGivenAt,
     } = params;
+
+    const projectId =
+      params.projectId && String(params.projectId).trim()
+        ? String(params.projectId).trim()
+        : null;
 
     await assertUserInOrganisation(userId, organisationId);
     await quotaService.assertUploadAllowed(organisationId);
@@ -62,22 +87,39 @@ export class DocumentService {
       throw new Error('File too large (max 20MB)');
     }
 
-    const project = await Project.findOne({
-      projectId,
-      organisationId,
-      deletedAt: null,
-      status: 'active',
-    }).lean();
+    let sharedWithOrganisation =
+      typeof params.sharedWithOrganisation === 'boolean'
+        ? params.sharedWithOrganisation
+        : projectId
+          ? true
+          : false;
 
-    if (!project) {
-      throw new Error('Project not found');
+    if (projectId) {
+      const project = await Project.findOne({
+        projectId,
+        organisationId,
+        deletedAt: null,
+        status: 'active',
+        ...visibilityFilter(userId, 'createdBy'),
+      }).lean();
+
+      if (!project) {
+        throw new Error('Project not found');
+      }
+
+      // Private project uploads stay private unless explicitly shared
+      if (project.sharedWithOrganisation === false) {
+        sharedWithOrganisation = false;
+      } else if (typeof params.sharedWithOrganisation !== 'boolean') {
+        sharedWithOrganisation = true;
+      }
     }
 
     const documentId = uuidv4();
     const extension = path.extname(originalFilename) || '.pdf';
     const objectKey = buildObjectKey(
       organisationId,
-      projectId,
+      projectId || COMMON_PROJECT_FOLDER,
       documentId,
       `${extension}.enc`
     );
@@ -111,6 +153,7 @@ export class DocumentService {
       },
       status: 'queued',
       uploadedBy: userId,
+      sharedWithOrganisation,
       consentGivenAt: consentGivenAt ?? null,
     });
 
@@ -127,6 +170,7 @@ export class DocumentService {
         originalFilename,
         mimeType,
         size: buffer.length,
+        sharedWithOrganisation,
         consentGivenAt: consentGivenAt ?? null,
         storageProvider: stored.storageProvider,
       },
@@ -142,6 +186,8 @@ export class DocumentService {
       documentId: document.documentId,
       jobId: job.jobId,
       status: job.status,
+      projectId,
+      sharedWithOrganisation,
       message: 'File uploaded. Extraction queued.',
     };
   }
@@ -153,25 +199,28 @@ export class DocumentService {
   ) {
     await assertUserInOrganisation(userId, organisationId);
 
+    // Ensure the project itself is visible to this user
+    const project = await Project.findOne({
+      projectId,
+      organisationId,
+      deletedAt: null,
+      ...visibilityFilter(userId, 'createdBy'),
+    }).lean();
+
+    if (!project) {
+      throw new Error('Project not found');
+    }
+
     const documents = await Document.find({
       organisationId,
       projectId,
       deletedAt: null,
+      ...visibilityFilter(userId, 'uploadedBy'),
     })
       .sort({ createdAt: -1 })
       .lean();
 
-    return documents.map((doc) => ({
-      documentId: doc.documentId,
-      projectId: doc.projectId,
-      originalFilename: doc.originalFilename,
-      mimeType: doc.mimeType,
-      size: doc.size,
-      status: doc.status,
-      contentHash: doc.contentHash,
-      createdAt: doc.createdAt,
-      updatedAt: doc.updatedAt,
-    }));
+    return documents.map(toListItem);
   }
 
   public async getDocument(
@@ -185,6 +234,7 @@ export class DocumentService {
       documentId,
       organisationId,
       deletedAt: null,
+      ...visibilityFilter(userId, 'uploadedBy'),
     }).lean();
 
     if (!document) {
@@ -202,12 +252,14 @@ export class DocumentService {
     return {
       document: {
         documentId: document.documentId,
-        projectId: document.projectId,
+        projectId: document.projectId ?? null,
         originalFilename: document.originalFilename,
         mimeType: document.mimeType,
         size: document.size,
         status: document.status,
         contentHash: document.contentHash,
+        uploadedBy: document.uploadedBy,
+        sharedWithOrganisation: document.sharedWithOrganisation !== false,
         createdAt: document.createdAt,
         updatedAt: document.updatedAt,
       },
@@ -246,6 +298,7 @@ export class DocumentService {
       documentId,
       organisationId,
       deletedAt: null,
+      ...visibilityFilter(userId, 'uploadedBy'),
     }).lean();
 
     if (!document) {
@@ -290,16 +343,22 @@ export class DocumentService {
     organisationId: string,
     documentId: string
   ) {
-    await assertOrgRole(userId, organisationId, 'admin');
+    await assertUserInOrganisation(userId, organisationId);
 
     const document = await Document.findOne({
       documentId,
       organisationId,
       deletedAt: null,
+      ...visibilityFilter(userId, 'uploadedBy'),
     });
 
     if (!document) {
       throw new Error('Document not found');
+    }
+
+    const isOwner = document.uploadedBy === userId;
+    if (!isOwner) {
+      await assertOrgRole(userId, organisationId, 'admin');
     }
 
     try {
@@ -356,6 +415,7 @@ export class DocumentService {
     const filter: Record<string, unknown> = {
       organisationId,
       deletedAt: null,
+      ...visibilityFilter(userId, 'uploadedBy'),
     };
 
     if (options.projectId) {
@@ -369,16 +429,7 @@ export class DocumentService {
       .limit(limit)
       .lean();
 
-    return documents.map((doc) => ({
-      documentId: doc.documentId,
-      projectId: doc.projectId,
-      originalFilename: doc.originalFilename,
-      mimeType: doc.mimeType,
-      size: doc.size,
-      status: doc.status,
-      createdAt: doc.createdAt,
-      updatedAt: doc.updatedAt,
-    }));
+    return documents.map(toListItem);
   }
 }
 

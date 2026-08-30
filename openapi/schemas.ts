@@ -113,10 +113,16 @@ export const ApiKeyParams = z.object({
 
 // ── Projects ──────────────────────────────────────────
 export const CreateProjectBody = z.object({
-  organisationId: z.string(),
+  /** Optional — usually taken from `x-organisation-id` header */
+  organisationId: z.string().optional(),
   name: z.string().min(1),
   description: z.string().optional(),
+  extractionHint: z.string().optional(),
+  fields: z.array(z.any()).optional(),
+  crossFieldRules: z.array(z.record(z.string(), z.any())).optional(),
   schema: z.any().optional(),
+  /** Default true — share with everyone in the organisation */
+  sharedWithOrganisation: z.boolean().optional(),
 }).passthrough();
 
 export const ProjectIdParams = z.object({

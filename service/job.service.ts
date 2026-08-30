@@ -10,7 +10,7 @@ export class JobService {
   public async createJob(params: {
     documentId: string;
     organisationId: string;
-    projectId: string;
+    projectId?: string | null;
   }) {
     const { documentId, organisationId, projectId } = params;
 
@@ -18,7 +18,7 @@ export class JobService {
       jobId: uuidv4(),
       documentId,
       organisationId,
-      projectId,
+      projectId: projectId || null,
       status: 'queued',
     });
 

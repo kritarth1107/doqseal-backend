@@ -9,11 +9,12 @@ export class DocumentController {
 
     try {
       const organisationId = resolveOrganisationId(request);
-      let projectId = '';
+      let projectId: string | null = null;
       let fileBuffer: Buffer | null = null;
       let originalFilename = '';
       let mimeType = '';
       let consentGivenAt: Date | null = null;
+      let sharedWithOrganisation: boolean | undefined;
 
       const parts = request.parts();
       for await (const part of parts) {
@@ -22,25 +23,22 @@ export class DocumentController {
           originalFilename = part.filename;
           mimeType = part.mimetype;
         } else if (part.fieldname === 'projectId') {
-          projectId = String(part.value);
-        } else if (part.fieldname === 'consentGivenAt') {
+          const raw = String(part.value || '').trim();
+          projectId = raw && raw !== 'null' && raw !== 'undefined' ? raw : null;
+        } else if (part.fieldname === 'sharedWithOrganisation') {
+          const raw = String(part.value).trim().toLowerCase();
+          sharedWithOrganisation = raw === 'true' || raw === '1';
+        } else if (part.fieldname === 'consent' || part.fieldname === 'consentGivenAt') {
           const rawValue = String(part.value).trim();
-          if (rawValue) {
+          if (rawValue === 'true' || rawValue === '1') {
+            consentGivenAt = new Date();
+          } else if (rawValue) {
             const parsed = new Date(rawValue);
-            if (Number.isNaN(parsed.getTime())) {
-              return responseUtil.error(
-                reply,
-                'consentGivenAt must be a valid ISO date',
-                400
-              );
+            if (!Number.isNaN(parsed.getTime())) {
+              consentGivenAt = parsed;
             }
-            consentGivenAt = parsed;
           }
         }
-      }
-
-      if (!projectId) {
-        return responseUtil.error(reply, 'projectId is required', 400);
       }
 
       if (!fileBuffer || !originalFilename) {
@@ -55,6 +53,7 @@ export class DocumentController {
         mimeType,
         buffer: fileBuffer,
         consentGivenAt,
+        sharedWithOrganisation,
       });
 
       return responseUtil.success(

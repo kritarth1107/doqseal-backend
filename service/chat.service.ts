@@ -39,6 +39,7 @@ export class ChatService {
           message: payload.message,
           organisationId: payload.organisationId,
           projectId: payload.projectId,
+          userId,
         },
         { timeout: 120_000 }
       );
