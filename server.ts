@@ -15,6 +15,7 @@ import config from './config/app.config';
 import loggerHook from './middleware/logger.middleware';
 import errorHandler from './middleware/error.middleware';
 import responseUtil from './utils/response.util';
+import { collectHealthReport } from './utils/health.util';
 
 // Domain Routers
 import { authRouter } from './routes/auth.route';
@@ -112,13 +113,18 @@ export class ServerSetup {
   private setupRoutes(): void {
     const apiPrefix = `api/${config.server.apiVersion}`;
 
-    // Health check endpoint
-    this.app.get('/health', async (request, reply) => {
-      return responseUtil.success(reply, 'API Gateway is online', {
-        uptime: process.uptime(),
-        environment: config.server.env,
-        timestamp: new Date().toISOString()
-      });
+    // Public health — dependency status only; no secrets, URIs, or hostnames
+    this.app.get('/health', async (_request, reply) => {
+      const report = await collectHealthReport();
+      const statusCode = report.status === 'unhealthy' ? 503 : 200;
+      const message =
+        report.status === 'ok'
+          ? 'All systems operational'
+          : report.status === 'degraded'
+            ? 'API online with degraded dependencies'
+            : 'API unhealthy';
+
+      return responseUtil.success(reply, message, report, statusCode);
     });
 
     // Domain Route Registration

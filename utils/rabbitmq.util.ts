@@ -24,6 +24,25 @@ export class RabbitMQUtil {
   }
 
   /**
+   * Lightweight broker liveness check for /health.
+   * Does not return connection URIs or host details.
+   */
+  public static async healthCheck(): Promise<{ ok: boolean; reason?: string }> {
+    if (!connection || !channel) {
+      return { ok: false, reason: 'not_initialized' };
+    }
+
+    try {
+      if ((connection as any).connection?.stream?.destroyed) {
+        return { ok: false, reason: 'connection_closed' };
+      }
+      return { ok: true };
+    } catch {
+      return { ok: false, reason: 'broker_unreachable' };
+    }
+  }
+
+  /**
    * Distributes a massive heavy payload onto the background queue reliably.
    * Fire and Forget architecture safely prevents API block lag completely.
    */
