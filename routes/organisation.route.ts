@@ -25,7 +25,7 @@ export const organisationRouter: FastifyPluginAsync = async (
         response: { 200: ApiSuccessSchema, ...errorResponses },
       },
     },
-    organisationController.getUsage
+    organisationController.getUsage.bind(organisationController)
   );
 
   fastify.get(
@@ -39,7 +39,7 @@ export const organisationRouter: FastifyPluginAsync = async (
         response: { 200: ApiSuccessSchema, ...errorResponses },
       },
     },
-    organisationController.getStats
+    organisationController.getStats.bind(organisationController)
   );
 
   fastify.get(
@@ -53,7 +53,7 @@ export const organisationRouter: FastifyPluginAsync = async (
         response: { 200: ApiSuccessSchema, ...errorResponses },
       },
     },
-    organisationController.getDetails
+    organisationController.getDetails.bind(organisationController)
   );
 
   fastify.delete(
@@ -67,7 +67,7 @@ export const organisationRouter: FastifyPluginAsync = async (
         response: { 200: ApiSuccessSchema, ...errorResponses },
       },
     },
-    organisationController.eraseDataSubject
+    organisationController.eraseDataSubject.bind(organisationController)
   );
 };
 
