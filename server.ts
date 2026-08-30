@@ -16,6 +16,11 @@ import loggerHook from './middleware/logger.middleware';
 import errorHandler from './middleware/error.middleware';
 import responseUtil from './utils/response.util';
 import { collectHealthReport } from './utils/health.util';
+import { registerOpenApi } from './openapi/register';
+import {
+  ApiSuccessSchema,
+  errorResponses,
+} from './openapi/schemas';
 
 // Domain Routers
 import { authRouter } from './routes/auth.route';
@@ -67,7 +72,21 @@ export class ServerSetup {
     // 1. Core Security & Logging
     await this.app.register(middie);
     this.app.use(morgan('dev'));
-    await this.app.register(helmet);
+    await this.app.register(helmet, {
+      // Allow Scalar API reference assets at /docs
+      contentSecurityPolicy: {
+        directives: {
+          defaultSrc: ["'self'"],
+          scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'", 'blob:'],
+          styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
+          fontSrc: ["'self'", 'https://fonts.gstatic.com', 'data:'],
+          imgSrc: ["'self'", 'data:', 'blob:', 'https:'],
+          connectSrc: ["'self'"],
+          workerSrc: ["'self'", 'blob:'],
+          frameSrc: ["'self'"],
+        },
+      },
+    });
     await this.app.register(cors, {
       origin: config.server.corsOrigins,
       credentials: true
@@ -114,18 +133,30 @@ export class ServerSetup {
     const apiPrefix = `api/${config.server.apiVersion}`;
 
     // Public health — dependency status only; no secrets, URIs, or hostnames
-    this.app.get('/health', async (_request, reply) => {
-      const report = await collectHealthReport();
-      const statusCode = report.status === 'unhealthy' ? 503 : 200;
-      const message =
-        report.status === 'ok'
-          ? 'All systems operational'
-          : report.status === 'degraded'
-            ? 'API online with degraded dependencies'
-            : 'API unhealthy';
+    this.app.get(
+      '/health',
+      {
+        schema: {
+          tags: ['Health'],
+          summary: 'Health and dependency checks',
+          description:
+            'Returns safe status for MongoDB, RabbitMQ, AI engine, and blob configuration. No secrets or hostnames.',
+          response: { 200: ApiSuccessSchema, 503: ApiSuccessSchema, ...errorResponses },
+        },
+      },
+      async (_request, reply) => {
+        const report = await collectHealthReport();
+        const statusCode = report.status === 'unhealthy' ? 503 : 200;
+        const message =
+          report.status === 'ok'
+            ? 'All systems operational'
+            : report.status === 'degraded'
+              ? 'API online with degraded dependencies'
+              : 'API unhealthy';
 
-      return responseUtil.success(reply, message, report, statusCode);
-    });
+        return responseUtil.success(reply, message, report, statusCode);
+      }
+    );
 
     // Domain Route Registration
     this.app.register(authRouter, { prefix: `/${apiPrefix}/kingdom` });
@@ -156,17 +187,18 @@ export class ServerSetup {
   public async start(): Promise<void> {
     try {
       await this.setupMiddleware();
-      // this.setupWebSocket();
+      await registerOpenApi(this.app);
       this.setupRoutes();
 
       await this.app.listen({ port: this.PORT, host: '0.0.0.0' });
 
       console.log(`
 ==================================================
-🚀 SAKSHYA API SERVER ACTIVATED 
+🚀 DOQSEAL API SERVER ACTIVATED
 ==================================================
 📡 Environment:  ${config.server.env}
 🔌 Port:         ${this.PORT}
+📚 API docs:     http://localhost:${this.PORT}/docs
 ==================================================
       `);
     } catch (error) {

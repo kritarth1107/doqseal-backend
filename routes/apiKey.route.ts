@@ -1,22 +1,61 @@
 import { FastifyInstance, FastifyPluginAsync } from 'fastify';
 import apiKeyController from '../controller/apiKey.controller';
 import userAuth from '../middleware/user.auth';
+import {
+  ApiKeyOrgParams,
+  ApiKeyParams,
+  ApiSuccessSchema,
+  CreateApiKeyBody,
+  bearerSecurity,
+  errorResponses,
+} from '../openapi/schemas';
 
-/**
- * API Key Router - Handles organisation-level API key management
- */
-export const apiKeyRouter: FastifyPluginAsync = async (fastify: FastifyInstance) => {
-  // Apply userAuth middleware to all routes in this domain
+export const apiKeyRouter: FastifyPluginAsync = async (
+  fastify: FastifyInstance
+) => {
   fastify.addHook('preHandler', userAuth);
 
-  // POST /api/v1/manage/api-keys
-  fastify.post('/', apiKeyController.create);
+  fastify.post(
+    '/',
+    {
+      schema: {
+        tags: ['API Keys'],
+        summary: 'Create API key',
+        security: bearerSecurity,
+        body: CreateApiKeyBody,
+        response: { 200: ApiSuccessSchema, ...errorResponses },
+      },
+    },
+    apiKeyController.create
+  );
 
-  // GET /api/v1/manage/api-keys/:organisationId
-  fastify.get('/:organisationId', apiKeyController.list);
+  fastify.get(
+    '/:organisationId',
+    {
+      schema: {
+        tags: ['API Keys'],
+        summary: 'List API keys for organisation',
+        security: bearerSecurity,
+        params: ApiKeyOrgParams,
+        response: { 200: ApiSuccessSchema, ...errorResponses },
+      },
+    },
+    apiKeyController.list
+  );
 
-  // DELETE /api/v1/manage/api-keys/:organisationId/:keyId
-  fastify.delete('/:organisationId/:keyId', apiKeyController.revoke);
+  fastify.delete(
+    '/:organisationId/:keyId',
+    {
+      schema: {
+        tags: ['API Keys'],
+        summary: 'Revoke API key',
+        security: bearerSecurity,
+        params: ApiKeyParams,
+        response: { 200: ApiSuccessSchema, ...errorResponses },
+      },
+    },
+    apiKeyController.revoke
+  );
 };
 
 export default apiKeyRouter;

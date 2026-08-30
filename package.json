@@ -48,6 +48,7 @@
     "@fastify/swagger": "^9.7.0",
     "@fastify/swagger-ui": "^6.1.1",
     "@google/generative-ai": "^0.24.1",
+    "@scalar/fastify-api-reference": "^1.67.0",
     "@types/nodemailer": "^6.4.17",
     "amqplib": "^0.10.9",
     "axios": "^1.20.0",

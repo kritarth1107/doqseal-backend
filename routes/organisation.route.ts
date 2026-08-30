@@ -1,25 +1,74 @@
 import { FastifyInstance, FastifyPluginAsync } from 'fastify';
 import organisationController from '../controller/organisation.controller';
 import userAuth from '../middleware/user.auth';
+import {
+  ApiSuccessSchema,
+  EraseDataSubjectParams,
+  OrganisationIdParams,
+  bearerSecurity,
+  errorResponses,
+} from '../openapi/schemas';
 
-/**
- * Organisation Router - Handles all organisation-related endpoints
- */
-export const organisationRouter: FastifyPluginAsync = async (fastify: FastifyInstance) => {
-  // Add authentication middleware to all routes in this router
+export const organisationRouter: FastifyPluginAsync = async (
+  fastify: FastifyInstance
+) => {
   fastify.addHook('preHandler', userAuth);
 
-  // GET /api/v1/organisations/:organisationId/usage
-  fastify.get('/:organisationId/usage', organisationController.getUsage);
+  fastify.get(
+    '/:organisationId/usage',
+    {
+      schema: {
+        tags: ['Organisations'],
+        summary: 'Get organisation usage / quotas',
+        security: bearerSecurity,
+        params: OrganisationIdParams,
+        response: { 200: ApiSuccessSchema, ...errorResponses },
+      },
+    },
+    organisationController.getUsage
+  );
 
-  // GET /api/v1/organisations/:organisationId/stats
-  fastify.get('/:organisationId/stats', organisationController.getStats);
+  fastify.get(
+    '/:organisationId/stats',
+    {
+      schema: {
+        tags: ['Organisations'],
+        summary: 'Get organisation stats',
+        security: bearerSecurity,
+        params: OrganisationIdParams,
+        response: { 200: ApiSuccessSchema, ...errorResponses },
+      },
+    },
+    organisationController.getStats
+  );
 
-  // GET /api/v1/organisations/:organisationId
-  fastify.get('/:organisationId', organisationController.getDetails);
+  fastify.get(
+    '/:organisationId',
+    {
+      schema: {
+        tags: ['Organisations'],
+        summary: 'Get organisation details',
+        security: bearerSecurity,
+        params: OrganisationIdParams,
+        response: { 200: ApiSuccessSchema, ...errorResponses },
+      },
+    },
+    organisationController.getDetails
+  );
 
-  // DELETE /api/v1/organisations/:id/data-subject/:email
-  fastify.delete('/:id/data-subject/:email', organisationController.eraseDataSubject);
+  fastify.delete(
+    '/:id/data-subject/:email',
+    {
+      schema: {
+        tags: ['Organisations'],
+        summary: 'Erase data subject (DPDP)',
+        security: bearerSecurity,
+        params: EraseDataSubjectParams,
+        response: { 200: ApiSuccessSchema, ...errorResponses },
+      },
+    },
+    organisationController.eraseDataSubject
+  );
 };
 
 export default organisationRouter;
