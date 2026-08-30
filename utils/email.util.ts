@@ -2,18 +2,23 @@ import { Resend } from 'resend';
 import axios from 'axios';
 import config from '../config/app.config';
 
-// Initialize the Resend client with API key from config
 const resend = new Resend(config.email.resendApiKey);
+
+const DEFAULT_FROM =
+  process.env.EMAIL_FROM?.trim() ||
+  'DoqSeal Security <security@mail.doqseal.com>';
+const BRAND_NAME = 'DoqSeal';
+const BRAND_LOGO_URL = 'https://www.doqseal.com/assets/DoqSeal-full.svg';
 
 export interface SendEmailOptions {
   to: string | string[];
   subject: string;
   text?: string;
   html?: string;
-  from?: string; // Custom sender Name or Address
+  from?: string;
   cc?: string | string[];
   bcc?: string | string[];
-  attachments?: any[]; 
+  attachments?: any[];
 }
 
 export class EmailUtil {
@@ -22,19 +27,18 @@ export class EmailUtil {
   }
 
   private static parseFromAddress(from?: string): { name: string; email: string } {
-    const defaultFrom = 'Sakshya <no-reply@emails.sakshya.io>';
-    const fromAddress = from || defaultFrom;
+    const fromAddress = from || DEFAULT_FROM;
     const match = fromAddress.match(/^(.*?)<([^>]+)>$/);
 
     if (match) {
       return {
-        name: match[1].trim() || 'Sakshya',
+        name: match[1].trim() || BRAND_NAME,
         email: match[2].trim(),
       };
     }
 
     return {
-      name: 'Sakshya',
+      name: BRAND_NAME,
       email: fromAddress,
     };
   }
@@ -55,7 +59,7 @@ export class EmailUtil {
     const payload: Record<string, unknown> = {
       recipients,
       from: { name, email },
-      domain: process.env.MSG91_DOMAIN || 'emails.sakshya.io',
+      domain: process.env.MSG91_DOMAIN || 'mail.doqseal.com',
       subject: options.subject,
     };
 
@@ -83,7 +87,7 @@ export class EmailUtil {
   }
 
   private static async sendViaResend(options: SendEmailOptions): Promise<void> {
-    const fromAddress = options.from || `Sakshya <no-reply@emails.sakshya.io>`;
+    const fromAddress = options.from || DEFAULT_FROM;
 
     const { data, error } = await resend.emails.send({
       from: fromAddress,
@@ -122,9 +126,13 @@ export class EmailUtil {
   }
 
   /**
-   * Pre-configured utility for sending a formatted OTP text to a user.
+   * Pre-configured utility for sending a formatted OTP email.
    */
-  public static async sendOTPEmail(to: string, otp: string, context: string = 'Verification'): Promise<void> {
+  public static async sendOTPEmail(
+    to: string,
+    otp: string,
+    context: string = 'Verification'
+  ): Promise<void> {
     const html = `
 			<!DOCTYPE html>
 			<html>
@@ -132,16 +140,8 @@ export class EmailUtil {
 				<style>
 					body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; line-height: 1.6; color: #111; margin: 0; padding: 0; background-color: #ffffff; }
 					.container { max-width: 600px; margin: 0; padding: 40px; text-align: left; }
-					.pill-header { 
-						background: #000; 
-						border-radius: 50px; 
-						padding: 8px 16px; 
-						display: inline-flex; 
-						align-items: center; 
-						margin-bottom: 40px;
-					}
-					.logo-img { height: 20px; width: auto; margin-right: 10px; filter: brightness(0) invert(1); }
-					.logo-text { color: #fff; font-size: 16px; font-weight: 700; letter-spacing: -0.5px; }
+					.brand { margin-bottom: 40px; }
+					.logo-img { height: 36px; width: auto; display: block; }
 					h1 { font-size: 24px; font-weight: 700; color: #000; margin-bottom: 24px; }
 					p { font-size: 16px; color: #444; margin-bottom: 16px; }
 					.otp-code { font-size: 36px; font-weight: 800; color: #000; margin: 32px 0; letter-spacing: 2px; }
@@ -151,29 +151,28 @@ export class EmailUtil {
 			</head>
 			<body>
 				<div class="container">
-					<div class="pill-header">
-						<img src="https://www.sakshya.io/sakshya_logo.svg" class="logo-img" alt="Sakshya Logo">
-						<span class="logo-text">Sakshya</span>
+					<div class="brand">
+						<img src="${BRAND_LOGO_URL}" class="logo-img" alt="DoqSeal">
 					</div>
 					<h1>Verification Code</h1>
 					<p>Hello,</p>
-					<p>Use the following code to complete your ${context.toLowerCase()} to Sakshya. This code is valid for the next 10 minutes.</p>
+					<p>Use the following code to complete your ${context.toLowerCase()} to DoqSeal. This code is valid for the next 10 minutes.</p>
 					<div class="otp-code">${otp}</div>
 					<p class="warning">If you didn't request this code, you can safely ignore this email.</p>
 					<div class="footer">
-						<p>&copy; ${new Date().getFullYear()} Sakshya. All rights reserved.</p>
-						<p>Sent with ❤️ from the Sakshya Team.</p>
+						<p>&copy; ${new Date().getFullYear()} DoqSeal. All rights reserved.</p>
+						<p>Sent securely by the DoqSeal team.</p>
 					</div>
 				</div>
 			</body>
 			</html>
     `;
 
-    return this.sendEmail({ 
-      to, 
-      subject: `Your Sakshya ${context} code`, 
+    return this.sendEmail({
+      to,
+      subject: `Your DoqSeal ${context} code`,
       html,
-      from: `Sakshya Security <no-reply@emails.sakshya.io>`
+      from: DEFAULT_FROM,
     });
   }
 }

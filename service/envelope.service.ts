@@ -233,7 +233,7 @@ export class EnvelopeService {
         subject,
         text,
         html: `<p>${text.replace(/\n/g, '<br/>')}</p>`,
-        from: 'DoqSeal <no-reply@emails.sakshya.io>',
+        from: 'DoqSeal Security <security@mail.doqseal.com>',
       });
 
       return {
