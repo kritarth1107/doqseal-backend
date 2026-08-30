@@ -94,7 +94,7 @@ export class ServerSetup {
 
     // 2. Multipart Uploads
     await this.app.register(multipart, {
-      limits: { fileSize: 10 * 1024 * 1024 } // 10MB
+      limits: { fileSize: 20 * 1024 * 1024 } // 20MB — aligned with document service
     });
 
     // 3. Performance: Rate Limiting (Conditional)
