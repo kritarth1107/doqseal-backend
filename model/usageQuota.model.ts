@@ -4,6 +4,7 @@ export interface IUsageQuota extends Document {
   organisationId: string;
   date: string;
   uploadCount: number;
+  apiRequestCount: number;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -21,6 +22,10 @@ const UsageQuotaSchema: Schema = new Schema(
       index: true,
     },
     uploadCount: {
+      type: Number,
+      default: 0,
+    },
+    apiRequestCount: {
       type: Number,
       default: 0,
     },

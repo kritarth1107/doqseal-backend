@@ -71,6 +71,20 @@ export const documentRouter: FastifyPluginAsync = async (
     documentController.deleteOne
   );
 
+  fastify.post(
+    '/:documentId/reprocess',
+    {
+      schema: {
+        tags: ['Documents'],
+        summary: 'Re-run extraction for a document',
+        security: bearerSecurity,
+        params: DocumentIdParams,
+        response: { 200: ApiSuccessSchema, ...errorResponses },
+      },
+    },
+    documentController.reprocess
+  );
+
   fastify.get(
     '/:documentId',
     {

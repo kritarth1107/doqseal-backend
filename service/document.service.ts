@@ -1,6 +1,5 @@
 ﻿import crypto from 'crypto';
 import path from 'path';
-import axios from 'axios';
 import Document from '../model/document.model';
 import Project from '../model/project.model';
 import Extraction from '../model/extraction.model';
@@ -20,7 +19,6 @@ import {
 import jobService from './job.service';
 import quotaService from './quota.service';
 import auditService from './audit.service';
-import config from '../config/app.config';
 import {
   decryptBuffer,
   encryptBuffer,
@@ -40,12 +38,14 @@ function toListItem(doc: any) {
     documentId: doc.documentId,
     projectId: doc.projectId ?? null,
     originalFilename: doc.originalFilename,
+    displayTitle: doc.displayTitle || null,
     mimeType: doc.mimeType,
     size: doc.size,
     status: doc.status,
     contentHash: doc.contentHash,
     uploadedBy: doc.uploadedBy,
     sharedWithOrganisation: doc.sharedWithOrganisation !== false,
+    filePurgedAt: doc.filePurgedAt || null,
     createdAt: doc.createdAt,
     updatedAt: doc.updatedAt,
   };
@@ -77,7 +77,8 @@ export class DocumentService {
         : null;
 
     await assertUserInOrganisation(userId, organisationId);
-    await quotaService.assertUploadAllowed(organisationId);
+    await quotaService.assertUploadAllowed(organisationId, buffer.length);
+    await quotaService.assertExtractionAllowed(organisationId);
 
     if (!ALLOWED_MIME_TYPES.has(mimeType)) {
       throw new Error('Only PDF, PNG, and JPG files are allowed');
@@ -254,12 +255,14 @@ export class DocumentService {
         documentId: document.documentId,
         projectId: document.projectId ?? null,
         originalFilename: document.originalFilename,
+        displayTitle: document.displayTitle || null,
         mimeType: document.mimeType,
         size: document.size,
         status: document.status,
         contentHash: document.contentHash,
         uploadedBy: document.uploadedBy,
         sharedWithOrganisation: document.sharedWithOrganisation !== false,
+        filePurgedAt: document.filePurgedAt || null,
         createdAt: document.createdAt,
         updatedAt: document.updatedAt,
       },
@@ -303,6 +306,12 @@ export class DocumentService {
 
     if (!document) {
       throw new Error('Document not found');
+    }
+
+    if (document.filePurgedAt || !document.storagePath) {
+      throw new Error(
+        'Original file was removed from storage; extracted context is still available'
+      );
     }
 
     const encryptedBytes = await getEncryptedObject({
@@ -361,33 +370,30 @@ export class DocumentService {
       await assertOrgRole(userId, organisationId, 'admin');
     }
 
-    try {
-      await deleteEncryptedObject({
-        storagePath: document.storagePath,
-        storageUri: document.storageUri,
-        storageProvider: document.storageProvider,
-      });
-    } catch {
-      // Object may already be missing
-    }
-
-    await Promise.all([
-      Extraction.deleteMany({ documentId }),
-      ExtractionJob.deleteMany({ documentId }),
-    ]);
-
-    try {
-      const baseUrl = config.aiEngine.url.replace(/\/$/, '');
-      await axios.delete(`${baseUrl}/rag/documents/${documentId}`, {
-        params: { organisationId },
-        timeout: 15_000,
-      });
-    } catch (error) {
-      console.warn('RAG cascade delete failed:', error);
+    // Purge original binary from storage, but keep extraction + RAG context
+    if (!document.filePurgedAt && document.storagePath) {
+      try {
+        await deleteEncryptedObject({
+          storagePath: document.storagePath,
+          storageUri: document.storageUri,
+          storageProvider: document.storageProvider,
+        });
+      } catch {
+        // Object may already be missing
+      }
     }
 
     document.deletedAt = new Date();
-    document.status = 'failed';
+    document.filePurgedAt = document.filePurgedAt || new Date();
+    document.size = 0;
+    document.storagePath = '';
+    document.storageUri = null;
+    document.encryption = null;
+    document.isEncrypted = false;
+    // Keep completed status so context remains meaningful in audits
+    if (document.status !== 'completed' && document.status !== 'failed') {
+      document.status = 'completed';
+    }
     await document.save();
 
     await auditService.logEvent({
@@ -399,10 +405,67 @@ export class DocumentService {
       metadata: {
         projectId: document.projectId,
         originalFilename: document.originalFilename,
+        displayTitle: document.displayTitle,
+        filePurged: true,
+        contextRetained: true,
       },
     });
 
-    return { documentId, deleted: true };
+    return {
+      documentId,
+      deleted: true,
+      filePurged: true,
+      contextRetained: true,
+    };
+  }
+
+  public async reprocessDocument(
+    userId: string,
+    organisationId: string,
+    documentId: string
+  ) {
+    await assertUserInOrganisation(userId, organisationId);
+
+    const document = await Document.findOne({
+      documentId,
+      organisationId,
+      deletedAt: null,
+      ...visibilityFilter(userId, 'uploadedBy'),
+    }).lean();
+
+    if (!document) {
+      throw new Error('Document not found');
+    }
+
+    if (document.filePurgedAt || !document.storagePath) {
+      throw new Error(
+        'Original file was removed from storage; reprocessing needs the source file'
+      );
+    }
+
+    const job = await jobService.createJob({
+      documentId,
+      organisationId,
+      projectId: document.projectId || null,
+    });
+
+    await auditService.logEvent({
+      actorId: userId,
+      organisationId,
+      action: 'document.reprocess',
+      resourceType: 'document',
+      resourceId: documentId,
+      metadata: {
+        projectId: document.projectId,
+        jobId: job.jobId,
+      },
+    });
+
+    return {
+      documentId,
+      jobId: job.jobId,
+      status: job.status,
+    };
   }
 
   public async listAllDocuments(

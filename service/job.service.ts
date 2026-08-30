@@ -5,6 +5,7 @@ import { v4 as uuidv4 } from 'uuid';
 import RabbitMQUtil from '../utils/rabbitmq.util';
 import { EXTRACTION_QUEUE } from '../constants/queues';
 import { assertUserInOrganisation } from '../utils/org-access.util';
+import quotaService from './quota.service';
 
 export class JobService {
   public async createJob(params: {
@@ -13,6 +14,8 @@ export class JobService {
     projectId?: string | null;
   }) {
     const { documentId, organisationId, projectId } = params;
+
+    await quotaService.assertExtractionAllowed(organisationId);
 
     const job = await ExtractionJob.create({
       jobId: uuidv4(),

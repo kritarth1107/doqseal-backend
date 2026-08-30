@@ -13,6 +13,8 @@ export interface IDocument extends MongooseDocument {
   /** Null = organisation Drive / common library (no project) */
   projectId?: string | null;
   originalFilename: string;
+  /** Human-readable title inferred after extraction (falls back to originalFilename) */
+  displayTitle?: string | null;
   mimeType: string;
   size: number;
   /** Blob object key (preferred) or legacy absolute local path */
@@ -34,7 +36,10 @@ export interface IDocument extends MongooseDocument {
   /** When false, only the uploader (within the org) can see this document */
   sharedWithOrganisation: boolean;
   consentGivenAt?: Date | null;
+  /** Soft-removed from Drive/project lists; extraction + RAG context retained */
   deletedAt?: Date | null;
+  /** When the original binary was purged from object storage */
+  filePurgedAt?: Date | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -61,6 +66,10 @@ const DocumentSchema: Schema = new Schema(
       type: String,
       required: true,
     },
+    displayTitle: {
+      type: String,
+      default: null,
+    },
     mimeType: {
       type: String,
       required: true,
@@ -71,7 +80,7 @@ const DocumentSchema: Schema = new Schema(
     },
     storagePath: {
       type: String,
-      required: true,
+      default: '',
     },
     storageUri: {
       type: String,
@@ -121,6 +130,11 @@ const DocumentSchema: Schema = new Schema(
       default: null,
     },
     deletedAt: {
+      type: Date,
+      default: null,
+      index: true,
+    },
+    filePurgedAt: {
       type: Date,
       default: null,
       index: true,

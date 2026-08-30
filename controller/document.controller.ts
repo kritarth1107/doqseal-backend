@@ -63,17 +63,15 @@ export class DocumentController {
         201
       );
     } catch (error: any) {
-      const status =
-        error.message?.includes('not found') ||
-        error.message?.includes('allowed') ||
-        error.message?.includes('large')
+      const message = error.message || 'Failed to upload document';
+      const status = /quota|exceeded/i.test(message)
+        ? 429
+        : message.includes('not found') ||
+            message.includes('allowed') ||
+            message.includes('large')
           ? 400
           : 500;
-      return responseUtil.error(
-        reply,
-        error.message || 'Failed to upload document',
-        status
-      );
+      return responseUtil.error(reply, message, status);
     }
   }
 
@@ -143,7 +141,12 @@ export class DocumentController {
         .header('Cache-Control', 'private, max-age=3600')
         .send(file.buffer);
     } catch (error: any) {
-      const status = error.message === 'Document not found' ? 404 : 500;
+      const status =
+        error.message === 'Document not found'
+          ? 404
+          : error.message?.includes('removed from storage')
+            ? 410
+            : 500;
       return responseUtil.error(
         reply,
         error.message || 'Failed to download document',
@@ -199,6 +202,34 @@ export class DocumentController {
         error.message || 'Failed to retrieve document',
         status
       );
+    }
+  }
+
+  public async reprocess(request: FastifyRequest, reply: FastifyReply) {
+    const sessionUser = (request as any).user;
+    const { documentId } = request.params as { documentId: string };
+
+    try {
+      const organisationId = resolveOrganisationId(request);
+      const result = await documentService.reprocessDocument(
+        sessionUser.userId,
+        organisationId,
+        documentId
+      );
+
+      return responseUtil.success(
+        reply,
+        'Document reprocessing queued',
+        result
+      );
+    } catch (error: any) {
+      const message = error.message || 'Failed to reprocess document';
+      const status = /quota|exceeded/i.test(message)
+        ? 429
+        : message === 'Document not found'
+          ? 404
+          : 500;
+      return responseUtil.error(reply, message, status);
     }
   }
 }

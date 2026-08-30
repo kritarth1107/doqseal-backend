@@ -27,16 +27,14 @@ export class ChatController {
 
       return responseUtil.success(reply, 'Chat response generated', result);
     } catch (error: any) {
-      const status =
-        error.message?.includes('Organisation context required') ||
-        error.message?.includes('access')
+      const message = error.message || 'Failed to process chat request';
+      const status = /quota|exceeded/i.test(message)
+        ? 429
+        : message.includes('Organisation context required') ||
+            message.includes('access')
           ? 400
           : 500;
-      return responseUtil.error(
-        reply,
-        error.message || 'Failed to process chat request',
-        status
-      );
+      return responseUtil.error(reply, message, status);
     }
   }
 }

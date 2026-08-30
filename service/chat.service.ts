@@ -2,6 +2,7 @@ import axios from 'axios';
 import config from '../config/app.config';
 import { assertUserInOrganisation } from '../utils/org-access.util';
 import auditService from './audit.service';
+import quotaService from './quota.service';
 
 export interface ChatPayload {
   message: string;
@@ -29,6 +30,7 @@ export class ChatService {
     payload: ChatPayload
   ): Promise<ChatResult> {
     await assertUserInOrganisation(userId, payload.organisationId);
+    await quotaService.trackApiRequest(payload.organisationId);
 
     const baseUrl = config.aiEngine.url.replace(/\/$/, '');
 
