@@ -13,7 +13,16 @@ export interface IProject extends Document {
   organisationId: string;
   name: string;
   description?: string;
+  /** Free-text instructions telling AI what to extract / check */
   extractionHint?: string;
+  /** Webhook endpoints with selected events */
+  webhooks?: {
+    url: string;
+    events: string[];
+    enabled?: boolean;
+  }[];
+  /** @deprecated Prefer `webhooks` — kept for legacy reads */
+  webhookUrls?: string[];
   fields: IProjectField[];
   crossFieldRules: Record<string, unknown>[];
   status: 'active' | 'archived';
@@ -65,6 +74,21 @@ const ProjectSchema: Schema = new Schema(
     extractionHint: {
       type: String,
       default: '',
+    },
+    webhooks: {
+      type: [
+        {
+          url: { type: String, required: true },
+          events: { type: [String], default: ['document.processed'] },
+          enabled: { type: Boolean, default: true },
+        },
+      ],
+      default: [],
+    },
+    /** @deprecated Prefer `webhooks` */
+    webhookUrls: {
+      type: [String],
+      default: [],
     },
     fields: {
       type: [ProjectFieldSchema],

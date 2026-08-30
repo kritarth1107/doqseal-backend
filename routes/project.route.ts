@@ -4,6 +4,7 @@ import userAuth from '../middleware/user.auth';
 import {
   ApiSuccessSchema,
   CreateProjectBody,
+  UpdateProjectBody,
   ProjectIdParams,
   bearerSecurity,
   errorResponses,
@@ -53,6 +54,21 @@ export const projectRouter: FastifyPluginAsync = async (
       },
     },
     projectController.getOne
+  );
+
+  fastify.patch(
+    '/:projectId',
+    {
+      schema: {
+        tags: ['Projects'],
+        summary: 'Update project settings (extraction context, webhooks)',
+        security: bearerSecurity,
+        params: ProjectIdParams,
+        body: UpdateProjectBody,
+        response: { 200: ApiSuccessSchema, ...errorResponses },
+      },
+    },
+    projectController.update
   );
 };
 

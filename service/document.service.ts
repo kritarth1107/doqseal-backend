@@ -188,6 +188,32 @@ export class DocumentService {
       projectId,
     });
 
+    if (projectId) {
+      try {
+        const { coerceProjectWebhooks, dispatchProjectWebhooks } = await import(
+          './webhook.service'
+        );
+        const project = await Project.findOne({
+          projectId,
+          organisationId,
+          deletedAt: null,
+        }).lean();
+        await dispatchProjectWebhooks(coerceProjectWebhooks(project || {}), {
+          event: 'document.uploaded',
+          projectId,
+          documentId,
+          jobId: job.jobId,
+          organisationId,
+          status: job.status,
+          originalFilename,
+          displayTitle: null,
+          timestamp: new Date().toISOString(),
+        });
+      } catch (error) {
+        console.warn('[webhook] document.uploaded dispatch failed', error);
+      }
+    }
+
     return {
       documentId: document.documentId,
       jobId: job.jobId,

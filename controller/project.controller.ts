@@ -2,9 +2,10 @@ import { FastifyRequest, FastifyReply } from 'fastify';
 import projectService from '../service/project.service';
 import responseUtil from '../utils/response.util';
 import { resolveOrganisationId } from '../utils/org-access.util';
+import { ProjectWebhook } from '../constants/webhook.events';
 
 export class ProjectController {
-  public async create(request: FastifyRequest, reply: FastifyReply) {
+  public create = async (request: FastifyRequest, reply: FastifyReply) => {
     const sessionUser = (request as any).user;
 
     try {
@@ -16,6 +17,8 @@ export class ProjectController {
         name: string;
         description?: string;
         extractionHint?: string;
+        webhooks?: ProjectWebhook[];
+        webhookUrls?: string[];
         fields?: any[];
         crossFieldRules?: Record<string, unknown>[];
         sharedWithOrganisation?: boolean;
@@ -35,6 +38,8 @@ export class ProjectController {
         name: body.name,
         description: body.description,
         extractionHint: body.extractionHint,
+        webhooks: body.webhooks,
+        webhookUrls: body.webhookUrls,
         fields: body.fields,
         crossFieldRules: body.crossFieldRules,
         sharedWithOrganisation: body.sharedWithOrganisation,
@@ -47,15 +52,24 @@ export class ProjectController {
         201
       );
     } catch (error: any) {
+      const status =
+        error.message?.includes('Invalid webhook') ||
+        error.message?.includes('Webhook URL') ||
+        error.message?.includes('Maximum 10') ||
+        error.message?.includes('Select at least one event')
+          ? 400
+          : error.message?.includes('access')
+            ? 403
+            : 500;
       return responseUtil.error(
         reply,
         error.message || 'Failed to create project',
-        error.message?.includes('access') ? 403 : 500
+        status
       );
     }
-  }
+  };
 
-  public async list(request: FastifyRequest, reply: FastifyReply) {
+  public list = async (request: FastifyRequest, reply: FastifyReply) => {
     const sessionUser = (request as any).user;
 
     try {
@@ -76,9 +90,9 @@ export class ProjectController {
         error.message?.includes('Organisation context') ? 400 : 500
       );
     }
-  }
+  };
 
-  public async getOne(request: FastifyRequest, reply: FastifyReply) {
+  public getOne = async (request: FastifyRequest, reply: FastifyReply) => {
     const sessionUser = (request as any).user;
     const { projectId } = request.params as { projectId: string };
 
@@ -102,7 +116,60 @@ export class ProjectController {
         status
       );
     }
-  }
+  };
+
+  public update = async (request: FastifyRequest, reply: FastifyReply) => {
+    const sessionUser = (request as any).user;
+    const { projectId } = request.params as { projectId: string };
+
+    try {
+      const organisationId = resolveOrganisationId(request);
+      const body = request.body as {
+        name?: string;
+        description?: string;
+        extractionHint?: string;
+        webhooks?: ProjectWebhook[];
+        webhookUrls?: string[];
+        sharedWithOrganisation?: boolean;
+        status?: 'active' | 'archived';
+        deleteProject?: boolean;
+      };
+
+      const project = await projectService.updateProject({
+        userId: sessionUser.userId,
+        organisationId,
+        projectId,
+        name: body.name,
+        description: body.description,
+        extractionHint: body.extractionHint,
+        webhooks: body.webhooks,
+        webhookUrls: body.webhookUrls,
+        sharedWithOrganisation: body.sharedWithOrganisation,
+        status: body.status,
+        deleteProject: body.deleteProject,
+      });
+
+      return responseUtil.success(reply, 'Project updated successfully', project);
+    } catch (error: any) {
+      const status =
+        error.message === 'Project not found'
+          ? 404
+          : error.message?.includes('Invalid webhook') ||
+              error.message?.includes('Webhook URL') ||
+              error.message?.includes('Maximum 10') ||
+              error.message?.includes('Select at least one event') ||
+              error.message?.includes('at least 2')
+            ? 400
+            : error.message?.includes('access')
+              ? 403
+              : 500;
+      return responseUtil.error(
+        reply,
+        error.message || 'Failed to update project',
+        status
+      );
+    }
+  };
 }
 
 export default new ProjectController();

@@ -307,6 +307,41 @@ export class DemoService {
         },
       }
     );
+
+    if (job.projectId) {
+      try {
+        const {
+          coerceProjectWebhooks,
+          dispatchProjectWebhooks,
+        } = await import('./webhook.service');
+        const project = await Project.findOne({
+          projectId: job.projectId,
+          deletedAt: null,
+        }).lean();
+        const document = await Document.findOne({
+          documentId: job.documentId,
+        }).lean();
+        await dispatchProjectWebhooks(coerceProjectWebhooks(project || {}), {
+          event: 'document.processed',
+          projectId: job.projectId,
+          documentId: job.documentId,
+          jobId: job.jobId,
+          organisationId: job.organisationId,
+          status: 'completed',
+          originalFilename: document?.originalFilename || null,
+          displayTitle: DEMO_TRF_EXTRACTION.suggested_title,
+          extraction: {
+            data: data as unknown as Record<string, unknown>,
+            fieldConfidence,
+            strategy: 'demo',
+            status: 'approved',
+          },
+          timestamp: now.toISOString(),
+        });
+      } catch (error) {
+        console.warn('[demo] webhook dispatch failed', error);
+      }
+    }
   }
 }
 

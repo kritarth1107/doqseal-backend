@@ -118,11 +118,62 @@ export const CreateProjectBody = z.object({
   name: z.string().min(1),
   description: z.string().optional(),
   extractionHint: z.string().optional(),
+  webhooks: z
+    .array(
+      z.object({
+        url: z.string().url(),
+        events: z
+          .array(
+            z.enum([
+              'document.uploaded',
+              'document.processing',
+              'document.processed',
+              'document.failed',
+            ])
+          )
+          .min(1),
+        enabled: z.boolean().optional(),
+      })
+    )
+    .max(1)
+    .optional(),
+  /** @deprecated Prefer `webhooks` */
+  webhookUrls: z.array(z.string().url()).max(1).optional(),
   fields: z.array(z.any()).optional(),
   crossFieldRules: z.array(z.record(z.string(), z.any())).optional(),
   schema: z.any().optional(),
   /** Default true — share with everyone in the organisation */
   sharedWithOrganisation: z.boolean().optional(),
+}).passthrough();
+
+export const UpdateProjectBody = z.object({
+  name: z.string().min(2).optional(),
+  description: z.string().optional(),
+  extractionHint: z.string().optional(),
+  webhooks: z
+    .array(
+      z.object({
+        url: z.string().url(),
+        events: z
+          .array(
+            z.enum([
+              'document.uploaded',
+              'document.processing',
+              'document.processed',
+              'document.failed',
+            ])
+          )
+          .min(1),
+        enabled: z.boolean().optional(),
+      })
+    )
+    .max(1)
+    .optional(),
+  webhookUrls: z.array(z.string().url()).max(1).optional(),
+  sharedWithOrganisation: z.boolean().optional(),
+  status: z.enum(['active', 'archived']).optional(),
+  /** Soft-delete the project */
+  deleteProject: z.boolean().optional(),
 }).passthrough();
 
 export const ProjectIdParams = z.object({
