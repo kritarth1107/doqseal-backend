@@ -252,6 +252,7 @@ export class DocumentService {
       .lean();
 
     if (latestJob) {
+      await demoService.rescueStuckDemoJob(latestJob as any);
       await demoService.finalizeDemoJobIfDue(latestJob as any);
       latestJob = await ExtractionJob.findOne({ documentId })
         .sort({ createdAt: -1 })

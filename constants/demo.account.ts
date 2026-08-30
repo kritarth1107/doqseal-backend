@@ -16,8 +16,8 @@ Clinical History
 Medical Officer Stamp
 Medical Superintendent Stamp`;
 
-/** Simulated processing window before extraction is revealed */
-export const DEMO_PROCESSING_MS = 10_000;
+/** Simulated processing window before extraction is revealed (~8s feels under 10s) */
+export const DEMO_PROCESSING_MS = 8_000;
 
 export const DEMO_TRF_EXTRACTION = {
   document_type: 'Medical Radiology Requisition + Billing Receipt',

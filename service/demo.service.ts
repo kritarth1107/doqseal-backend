@@ -9,6 +9,7 @@ import ExtractionJob, { IExtractionJob } from '../model/extractionJob.model';
 import {
   DEMO_ORG_NAME,
   DEMO_ORG_SLUG,
+  DEMO_PROCESSING_MS,
   DEMO_PROJECT_HINT,
   DEMO_PROJECT_NAME,
   DEMO_TRF_EXTRACTION,
@@ -49,7 +50,57 @@ export class DemoService {
       deletedAt: null,
     }).lean();
 
-    return Boolean(project && this.isTrfProjectName(project.name));
+    // Any project upload on the demo org uses canned extraction (no AI).
+    // Name check kept as a soft preference for logging / future branching.
+    return Boolean(project);
+  }
+
+  /**
+   * Rescue jobs that were queued for real AI on the demo org (e.g. old projects)
+   * so the UI never sits in "processing" for minutes.
+   */
+  public async rescueStuckDemoJob(job: {
+    jobId: string;
+    documentId: string;
+    organisationId: string;
+    projectId?: string | null;
+    status: string;
+    demoMode?: boolean;
+    demoRevealAt?: Date | null;
+    createdAt?: Date;
+  } | null): Promise<boolean> {
+    if (!job) return false;
+    if (job.status === 'completed' || job.status === 'failed') return false;
+
+    const isDemoOrg = await this.isDemoOrganisation(job.organisationId);
+    if (!isDemoOrg) return false;
+    if (!job.projectId) return false;
+
+    // Already on the timed demo path — respect reveal window
+    if (job.demoMode) {
+      return this.finalizeDemoJobIfDue(job as any);
+    }
+
+    // Real-AI queued/processing job on demo org → convert to instant demo finish
+    const ageMs = job.createdAt
+      ? Date.now() - new Date(job.createdAt).getTime()
+      : DEMO_PROCESSING_MS + 1;
+    if (ageMs < 2_000) return false;
+
+    await ExtractionJob.updateOne(
+      { jobId: job.jobId },
+      {
+        $set: {
+          demoMode: true,
+          demoRevealAt: new Date(0),
+          status: 'processing',
+          updatedAt: new Date(),
+        },
+      }
+    );
+
+    await this.writeDemoExtraction(job);
+    return true;
   }
 
   /**

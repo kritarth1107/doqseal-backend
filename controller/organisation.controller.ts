@@ -3,19 +3,11 @@ import organisationService from '../service/organisation.service';
 import quotaService from '../service/quota.service';
 import retentionService from '../service/retention.service';
 import responseUtil from '../utils/response.util';
-import { assertOrgRole } from '../utils/org-access.util';
+import {
+  assertOrgRole,
+  assertUserInOrganisation,
+} from '../utils/org-access.util';
 import auditService from '../service/audit.service';
-
-function assertOrganisationAccess(
-  sessionUser: any,
-  organisationId: string
-): boolean {
-  return Boolean(
-    sessionUser?.organisations?.some(
-      (o: any) => o.organisationId === organisationId
-    )
-  );
-}
 
 /**
  * Organisation Controller - Handles organisation-related HTTP requests.
@@ -27,13 +19,7 @@ export class OrganisationController {
     const sessionUser = (request as any).user;
 
     try {
-      if (!assertOrganisationAccess(sessionUser, organisationId)) {
-        return responseUtil.error(
-          reply,
-          'You do not have access to this organisation',
-          403
-        );
-      }
+      await assertUserInOrganisation(sessionUser.userId, organisationId);
 
       const details =
         await organisationService.getOrganisationDetails(organisationId);
@@ -43,10 +29,15 @@ export class OrganisationController {
         details
       );
     } catch (error: any) {
+      const status = error.message?.includes('access')
+        ? 403
+        : error.message === 'Organisation not found'
+          ? 404
+          : 500;
       return responseUtil.error(
         reply,
         error.message || 'Failed to retrieve organisation details',
-        500
+        status
       );
     }
   };
@@ -56,13 +47,7 @@ export class OrganisationController {
     const sessionUser = (request as any).user;
 
     try {
-      if (!assertOrganisationAccess(sessionUser, organisationId)) {
-        return responseUtil.error(
-          reply,
-          'You do not have access to this organisation',
-          403
-        );
-      }
+      await assertUserInOrganisation(sessionUser.userId, organisationId);
 
       const usage = await quotaService.getUsage(organisationId);
       return responseUtil.success(
@@ -71,10 +56,15 @@ export class OrganisationController {
         usage
       );
     } catch (error: any) {
+      const status = error.message?.includes('access')
+        ? 403
+        : error.message === 'Organisation not found'
+          ? 404
+          : 500;
       return responseUtil.error(
         reply,
         error.message || 'Failed to retrieve organisation usage',
-        500
+        status
       );
     }
   };
@@ -84,13 +74,7 @@ export class OrganisationController {
     const sessionUser = (request as any).user;
 
     try {
-      if (!assertOrganisationAccess(sessionUser, organisationId)) {
-        return responseUtil.error(
-          reply,
-          'You do not have access to this organisation',
-          403
-        );
-      }
+      await assertUserInOrganisation(sessionUser.userId, organisationId);
 
       const stats =
         await organisationService.getOrganisationStats(organisationId);
@@ -100,7 +84,11 @@ export class OrganisationController {
         stats
       );
     } catch (error: any) {
-      const status = error.message === 'Organisation not found' ? 404 : 500;
+      const status = error.message?.includes('access')
+        ? 403
+        : error.message === 'Organisation not found'
+          ? 404
+          : 500;
       return responseUtil.error(
         reply,
         error.message || 'Failed to retrieve organisation stats',

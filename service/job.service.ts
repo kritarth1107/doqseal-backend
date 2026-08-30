@@ -117,6 +117,7 @@ export class JobService {
       throw new Error('Job not found');
     }
 
+    await demoService.rescueStuckDemoJob(job as any);
     await demoService.finalizeDemoJobIfDue(job as any);
 
     job = await ExtractionJob.findOne({
