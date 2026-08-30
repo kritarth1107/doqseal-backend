@@ -83,13 +83,14 @@ export class AuthService {
     let isNewUser = false;
 
     if (!user) {
-      if (!name) {
-        throw new Error('Name is required for new users');
-      }
       isNewUser = true;
+      // Placeholder name until onboarding; prefer provided name when present
+      const displayName =
+        name?.trim() ||
+        email.split('@')[0].replace(/[._-]+/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()) ||
+        'DoqSeal User';
 
-      // Create User with Organisation and Membership
-      user = await this.createUserWithOrganisation({ email, name });
+      user = await this.createUserWithOrganisation({ email, name: displayName });
     } else {
       user.lastLoginAt = new Date();
       user.lastLoginData = {
@@ -111,6 +112,7 @@ export class AuthService {
         organisationName
       },
       isNewUser,
+      onboardingCompleted: user.onboardingCompleted !== false,
       token: jwtToken
     };
   }
@@ -184,6 +186,7 @@ export class AuthService {
         organisationName
       },
       isNewUser,
+      onboardingCompleted: user.onboardingCompleted !== false,
       token: jwtToken
     };
   }
@@ -257,10 +260,11 @@ export class AuthService {
       name,
       email,
       avatar,
+      onboardingCompleted: false,
     });
 
 
-    // Create Organisation
+    // Create Organisation (placeholder until onboarding)
     const orgId = uuidv4();
     const organisation = await Organisation.create({
       publicId: orgId,

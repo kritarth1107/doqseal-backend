@@ -50,6 +50,14 @@ export const CreateOrganisationBody = z.object({
   logoUrl: z.string().optional(),
 });
 
+export const CompleteOnboardingBody = z.object({
+  name: z.string().min(2).describe('Full name'),
+  organisationName: z.string().min(2).describe('Organisation or workspace name'),
+  usageIntent: z.enum(['individual', 'team']),
+  jobRole: z.string().min(1),
+  useCases: z.array(z.string()).optional().default([]),
+});
+
 export const OrganisationIdParams = z.object({
   organisationId: z.string().describe('Organisation id'),
 });

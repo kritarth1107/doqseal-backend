@@ -26,6 +26,40 @@ export class UserController {
   }
 
   /**
+   * Complete first-time onboarding
+   */
+  public async completeOnboarding(request: FastifyRequest, reply: FastifyReply) {
+    const sessionUser = (request as any).user;
+
+    if (!sessionUser) {
+      return responseUtil.error(reply, 'User session not found', 401);
+    }
+
+    try {
+      const body = request.body as {
+        name: string;
+        organisationName: string;
+        usageIntent: 'individual' | 'team';
+        jobRole: string;
+        useCases?: string[];
+      };
+
+      const profile = await userService.completeOnboarding(sessionUser.userId, {
+        name: body.name,
+        organisationName: body.organisationName,
+        usageIntent: body.usageIntent,
+        jobRole: body.jobRole,
+        useCases: body.useCases || [],
+      });
+
+      return responseUtil.success(reply, 'Onboarding completed successfully', profile);
+    } catch (error: any) {
+      const status = error.message?.includes('Please') ? 400 : 500;
+      return responseUtil.error(reply, error.message || 'Failed to complete onboarding', status);
+    }
+  }
+
+  /**
    * Create a new organisation for the authenticated user
    */
   public async createOrganisation(request: FastifyRequest, reply: FastifyReply) {

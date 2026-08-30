@@ -12,6 +12,13 @@ export interface IUser extends Document {
     organisationId: string;
     role: string;
   }[];
+  onboardingCompleted: boolean;
+  onboarding?: {
+    usageIntent?: 'individual' | 'team';
+    jobRole?: string;
+    useCases?: string[];
+    completedAt?: Date;
+  };
   lastLoginAt?: Date;
   lastLoginData?: any;
   connectSocials?: any;
@@ -56,6 +63,21 @@ const UserSchema: Schema = new Schema(
         role: { type: String, required: true },
       },
     ],
+    onboardingCompleted: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
+    onboarding: {
+      usageIntent: {
+        type: String,
+        enum: ['individual', 'team'],
+        default: undefined,
+      },
+      jobRole: { type: String, default: null },
+      useCases: { type: [String], default: [] },
+      completedAt: { type: Date, default: null },
+    },
 
     lastLoginAt: {
       type: Date,

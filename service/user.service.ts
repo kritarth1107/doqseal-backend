@@ -44,8 +44,72 @@ export class UserService {
       email: user.email,
       avatar: user.avatar,
       organisationName: userOrganisations[0]?.name || 'Personal',
-      organisations: userOrganisations
+      organisations: userOrganisations,
+      // Legacy users created before onboarding flag → treat as completed
+      onboardingCompleted: user.onboardingCompleted !== false,
+      onboarding: user.onboarding || null,
     };
+  }
+
+  /**
+   * Complete first-time onboarding: profile, org rename, intent & role
+   */
+  public async completeOnboarding(
+    userId: string,
+    data: {
+      name: string;
+      organisationName: string;
+      usageIntent: 'individual' | 'team';
+      jobRole: string;
+      useCases: string[];
+    }
+  ) {
+    const { name, organisationName, usageIntent, jobRole, useCases } = data;
+
+    if (!name?.trim() || name.trim().length < 2) {
+      throw new Error('Please enter your full name');
+    }
+    if (!organisationName?.trim() || organisationName.trim().length < 2) {
+      throw new Error('Please enter your organisation name');
+    }
+    if (!usageIntent || !['individual', 'team'].includes(usageIntent)) {
+      throw new Error('Please select how you plan to use DoqSeal');
+    }
+    if (!jobRole?.trim()) {
+      throw new Error('Please select your role');
+    }
+
+    const user = await User.findOne({ userId, deletedAt: null });
+    if (!user) {
+      throw new Error('User not found');
+    }
+
+    if (user.onboardingCompleted) {
+      return this.getUserProfile(userId);
+    }
+
+    user.name = name.trim();
+    user.onboarding = {
+      usageIntent,
+      jobRole: jobRole.trim(),
+      useCases: Array.isArray(useCases) ? useCases.filter(Boolean) : [],
+      completedAt: new Date(),
+    };
+    user.onboardingCompleted = true;
+    await user.save();
+
+    // Rename primary organisation
+    const primaryOrgId = user.organisations?.[0]?.organisationId;
+    if (primaryOrgId) {
+      const org = await Organisation.findOne({ publicId: primaryOrgId });
+      if (org) {
+        org.name = organisationName.trim();
+        org.slug = `${organisationName.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${primaryOrgId.slice(0, 8)}`;
+        await org.save();
+      }
+    }
+
+    return this.getUserProfile(userId);
   }
 
   /**

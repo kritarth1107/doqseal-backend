@@ -4,6 +4,7 @@ import userAuth from '../middleware/user.auth';
 import {
   ApiSuccessSchema,
   CreateOrganisationBody,
+  CompleteOnboardingBody,
   bearerSecurity,
   errorResponses,
 } from '../openapi/schemas';
@@ -22,6 +23,20 @@ export const userRouter: FastifyPluginAsync = async (fastify: FastifyInstance) =
       },
     },
     userController.getMe
+  );
+
+  fastify.post(
+    '/onboarding',
+    {
+      schema: {
+        tags: ['User'],
+        summary: 'Complete first-time user onboarding',
+        security: bearerSecurity,
+        body: CompleteOnboardingBody,
+        response: { 200: ApiSuccessSchema, ...errorResponses },
+      },
+    },
+    userController.completeOnboarding
   );
 
   fastify.post(
