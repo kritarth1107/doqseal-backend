@@ -3,8 +3,8 @@ import DailyRotateFile from 'winston-daily-rotate-file';
 import path from 'path';
 import fs from 'fs';
 
-// Ensure standard log directories exist securely at the root level
-const logDir = path.join(process.cwd(), 'logs');
+// Writable in containers (non-root). Override with LOG_DIR if needed.
+const logDir = process.env.LOG_DIR || path.join('/tmp', 'doqseal-logs');
 if (!fs.existsSync(logDir)) fs.mkdirSync(logDir, { recursive: true });
 
 // Define comprehensive standardized JSON structure exclusively for file logs
