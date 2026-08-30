@@ -14,6 +14,7 @@
     "seed:user-assessment": "ts-node scripts/seed-user-assessment.ts",
     "seed:admin": "ts-node scripts/seed-admin.ts",
     "seed:demo-projects": "ts-node scripts/seed-demo-projects.ts",
+    "seed:demo-account": "ts-node scripts/seed-demo-account.ts",
     "seed:token-packages": "ts-node scripts/seed-token-packages.ts",
     "seed:neon-sudoku": "ts-node scripts/seed-neon-sudoku.ts",
     "seed:quantum-iq": "ts-node scripts/seed-quantum-iq.ts",

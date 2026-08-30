@@ -19,6 +19,7 @@ import {
 import jobService from './job.service';
 import quotaService from './quota.service';
 import auditService from './audit.service';
+import demoService from './demo.service';
 import {
   decryptBuffer,
   encryptBuffer,
@@ -78,7 +79,11 @@ export class DocumentService {
 
     await assertUserInOrganisation(userId, organisationId);
     await quotaService.assertUploadAllowed(organisationId, buffer.length);
-    await quotaService.assertExtractionAllowed(organisationId);
+
+    const demoTrf = await demoService.isDemoTrfProject(organisationId, projectId);
+    if (!demoTrf) {
+      await quotaService.assertExtractionAllowed(organisationId);
+    }
 
     if (!ALLOWED_MIME_TYPES.has(mimeType)) {
       throw new Error('Only PDF, PNG, and JPG files are allowed');
@@ -231,7 +236,7 @@ export class DocumentService {
   ) {
     await assertUserInOrganisation(userId, organisationId);
 
-    const document = await Document.findOne({
+    let document = await Document.findOne({
       documentId,
       organisationId,
       deletedAt: null,
@@ -242,12 +247,25 @@ export class DocumentService {
       throw new Error('Document not found');
     }
 
-    const extraction = await Extraction.findOne({ documentId })
-      .sort({ version: -1 })
+    let latestJob = await ExtractionJob.findOne({ documentId })
+      .sort({ createdAt: -1 })
       .lean();
 
-    const latestJob = await ExtractionJob.findOne({ documentId })
-      .sort({ createdAt: -1 })
+    if (latestJob) {
+      await demoService.finalizeDemoJobIfDue(latestJob as any);
+      latestJob = await ExtractionJob.findOne({ documentId })
+        .sort({ createdAt: -1 })
+        .lean();
+      const refreshed = await Document.findOne({
+        documentId,
+        organisationId,
+        deletedAt: null,
+      }).lean();
+      if (refreshed) document = refreshed;
+    }
+
+    const extraction = await Extraction.findOne({ documentId })
+      .sort({ version: -1 })
       .lean();
 
     return {
@@ -272,6 +290,13 @@ export class DocumentService {
             status: latestJob.status,
             error: latestJob.error,
             completedAt: latestJob.completedAt,
+            demoMode: Boolean((latestJob as { demoMode?: boolean }).demoMode),
+            demoRevealAt: (() => {
+              const raw = (latestJob as { demoRevealAt?: Date | string | null })
+                .demoRevealAt;
+              if (!raw) return null;
+              return raw instanceof Date ? raw.toISOString() : String(raw);
+            })(),
           }
         : null,
       extraction: extraction

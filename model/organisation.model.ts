@@ -14,6 +14,8 @@ export interface IOrganisation extends Document {
   isDomainVerified: boolean;
   autoJoinDomain: boolean;
   isActive: boolean;
+  /** Demo workspace — canned TRF extraction, fixed OTP login */
+  isDemo?: boolean;
 
   deletedAt?: Date;
   createdAt: Date;
@@ -73,6 +75,11 @@ const OrganisationSchema: Schema = new Schema(
     isActive: {
       type: Boolean,
       default: true,
+      index: true,
+    },
+    isDemo: {
+      type: Boolean,
+      default: false,
       index: true,
     },
     deletedAt: {

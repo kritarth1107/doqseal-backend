@@ -15,6 +15,9 @@ export interface IExtractionJob extends Document {
   error?: string | null;
   startedAt?: Date | null;
   completedAt?: Date | null;
+  /** When true, worker/AI is skipped; extraction is canned after demoRevealAt */
+  demoMode?: boolean;
+  demoRevealAt?: Date | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -57,6 +60,15 @@ const ExtractionJobSchema: Schema = new Schema(
       default: null,
     },
     completedAt: {
+      type: Date,
+      default: null,
+    },
+    demoMode: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
+    demoRevealAt: {
       type: Date,
       default: null,
     },

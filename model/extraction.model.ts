@@ -16,6 +16,7 @@ export interface IExtraction extends Document {
   fieldConfidence: Record<string, number>;
   validationErrors: string[];
   status: ExtractionStatus;
+  strategy?: string | null;
   approvedAt?: Date | null;
   createdAt: Date;
   updatedAt: Date;
@@ -70,6 +71,10 @@ const ExtractionSchema: Schema = new Schema(
       enum: ['approved', 'approved_with_warnings', 'needs_review'],
       default: 'approved',
       index: true,
+    },
+    strategy: {
+      type: String,
+      default: null,
     },
     approvedAt: {
       type: Date,

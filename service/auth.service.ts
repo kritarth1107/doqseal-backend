@@ -8,6 +8,14 @@ import { ApiResponse } from '../utils/response.util';
 import jwt from 'jsonwebtoken';
 import config from '../config/app.config';
 import { v4 as uuidv4 } from 'uuid';
+import {
+  DEMO_OTP,
+  DEMO_ORG_NAME,
+  DEMO_ORG_SLUG,
+  DEMO_USER_NAME,
+  isDemoEmail,
+} from '../constants/demo.account';
+import demoService from './demo.service';
 
 
 /**
@@ -19,19 +27,25 @@ export class AuthService {
    * @param email - User's email address
    */
   public async loginWithEmail(email: string) {
+    const normalizedEmail = email.trim().toLowerCase();
+
     // 1. Check if user exists
-    const user = await User.findOne({ email }).lean();
+    const user = await User.findOne({ email: normalizedEmail }).lean();
     const isExistingUser = !!user;
 
-    // 2. Generate 6-digit OTP
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    // 2. Generate 6-digit OTP (fixed for demo account)
+    const otp = isDemoEmail(normalizedEmail)
+      ? DEMO_OTP
+      : Math.floor(100000 + Math.random() * 900000).toString();
 
-    // 3. Send OTP via Email
-    await EmailUtil.sendOTPEmail(email, otp, 'Login');
+    // 3. Send OTP via Email (skip for demo — OTP is always 123456)
+    if (!isDemoEmail(normalizedEmail)) {
+      await EmailUtil.sendOTPEmail(normalizedEmail, otp, 'Login');
+    }
 
     // 4. Generate secure OTP Token (email + otp + timestamp)
     const tokenData = JSON.stringify({
-      email,
+      email: normalizedEmail,
       otp,
       timestamp: Date.now()
     });
@@ -57,7 +71,8 @@ export class AuthService {
       userAgent?: string;
     };
   }) {
-    const { email, otp, token, name, sessionData } = params;
+    const { otp, token, name, sessionData } = params;
+    const email = params.email.trim().toLowerCase();
 
     // 1. Decrypt and validate token
     let decryptedData;
@@ -84,11 +99,11 @@ export class AuthService {
 
     if (!user) {
       isNewUser = true;
-      // Placeholder name until onboarding; prefer provided name when present
-      const displayName =
-        name?.trim() ||
-        email.split('@')[0].replace(/[._-]+/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()) ||
-        'DoqSeal User';
+      const displayName = isDemoEmail(email)
+        ? DEMO_USER_NAME
+        : name?.trim() ||
+          email.split('@')[0].replace(/[._-]+/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()) ||
+          'DoqSeal User';
 
       user = await this.createUserWithOrganisation({ email, name: displayName });
     } else {
@@ -100,6 +115,14 @@ export class AuthService {
         provider: "email"
       };
       await user.save();
+    }
+
+    if (isDemoEmail(email)) {
+      user = (await demoService.ensureDemoWorkspace(user)) as typeof user;
+    }
+
+    if (!user) {
+      throw new Error('User not found after login');
     }
 
     // 4. Generate JWT and Session
@@ -260,17 +283,20 @@ export class AuthService {
       name,
       email,
       avatar,
-      onboardingCompleted: false,
+      onboardingCompleted: isDemoEmail(email),
     });
 
 
-    // Create Organisation (placeholder until onboarding)
+    // Create Organisation (placeholder until onboarding; demo uses Zeroknow)
     const orgId = uuidv4();
     const organisation = await Organisation.create({
       publicId: orgId,
-      name: `${name.split(' ')[0]}'s Organisation`,
-      slug: `${name.split(' ')[0].toLowerCase()}-${uuidv4().split('-')[0]}`,
+      name: isDemoEmail(email) ? DEMO_ORG_NAME : `${name.split(' ')[0]}'s Organisation`,
+      slug: isDemoEmail(email)
+        ? DEMO_ORG_SLUG
+        : `${name.split(' ')[0].toLowerCase()}-${uuidv4().split('-')[0]}`,
       memberCount: 1,
+      isDemo: isDemoEmail(email),
       createdBy: userId
     });
 
