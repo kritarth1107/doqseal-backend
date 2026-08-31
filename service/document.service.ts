@@ -30,6 +30,37 @@ const ALLOWED_MIME_TYPES = new Set([
   'image/png',
   'image/jpeg',
   'image/jpg',
+  'image/webp',
+  'image/gif',
+  'image/bmp',
+  'image/tiff',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.ms-excel',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'text/csv',
+  'application/csv',
+  'text/plain',
+  'text/markdown',
+]);
+
+const ALLOWED_EXTENSIONS = new Set([
+  'pdf',
+  'png',
+  'jpg',
+  'jpeg',
+  'webp',
+  'gif',
+  'bmp',
+  'tif',
+  'tiff',
+  'doc',
+  'docx',
+  'xls',
+  'xlsx',
+  'csv',
+  'txt',
+  'md',
 ]);
 
 const MAX_FILE_SIZE = 20 * 1024 * 1024;
@@ -67,10 +98,10 @@ export class DocumentService {
       userId,
       organisationId,
       originalFilename,
-      mimeType,
       buffer,
       consentGivenAt,
     } = params;
+    let mimeType = params.mimeType;
 
     const projectId =
       params.projectId && String(params.projectId).trim()
@@ -85,8 +116,28 @@ export class DocumentService {
       await quotaService.assertExtractionAllowed(organisationId);
     }
 
-    if (!ALLOWED_MIME_TYPES.has(mimeType)) {
-      throw new Error('Only PDF, PNG, and JPG files are allowed');
+    const ext = path.extname(originalFilename || '').replace(/^\./, '').toLowerCase();
+    if (!ALLOWED_MIME_TYPES.has(mimeType) && !ALLOWED_EXTENSIONS.has(ext)) {
+      throw new Error(
+        'Unsupported file type. Allowed: PDF, images (PNG/JPG/WEBP), Word, Excel, CSV, TXT'
+      );
+    }
+    // Normalize empty browser MIME from extension when possible
+    if ((!mimeType || mimeType === 'application/octet-stream') && ext) {
+      const byExt: Record<string, string> = {
+        pdf: 'application/pdf',
+        png: 'image/png',
+        jpg: 'image/jpeg',
+        jpeg: 'image/jpeg',
+        webp: 'image/webp',
+        docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        csv: 'text/csv',
+        txt: 'text/plain',
+      };
+      if (byExt[ext]) {
+        mimeType = byExt[ext];
+      }
     }
 
     if (buffer.length > MAX_FILE_SIZE) {
