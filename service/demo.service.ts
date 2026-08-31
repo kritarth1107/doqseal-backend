@@ -13,10 +13,10 @@ import {
   DEMO_PROJECT_FIELDS,
   DEMO_PROJECT_HINT,
   DEMO_PROJECT_NAME,
-  DEMO_TRF_EXTRACTION,
   DEMO_USER_NAME,
   demoFieldConfidence,
   isDemoEmail,
+  resolveDemoTrfExtraction,
 } from '../constants/demo.account';
 
 export class DemoService {
@@ -239,6 +239,14 @@ export class DemoService {
     organisationId: string;
     projectId?: string | null;
   }) {
+    const document = await Document.findOne({
+      documentId: job.documentId,
+    }).lean();
+    const extraction = resolveDemoTrfExtraction(
+      document?.originalFilename,
+      typeof document?.size === 'number' ? document.size : null
+    );
+
     const existingForJob = await Extraction.findOne({ jobId: job.jobId }).lean();
     if (existingForJob) {
       await ExtractionJob.updateOne(
@@ -256,7 +264,7 @@ export class DemoService {
         {
           $set: {
             status: 'completed',
-            displayTitle: DEMO_TRF_EXTRACTION.suggested_title,
+            displayTitle: extraction.suggested_title,
           },
         }
       );
@@ -264,10 +272,10 @@ export class DemoService {
     }
 
     const data = {
-      ...DEMO_TRF_EXTRACTION,
-      confidence_scores: { ...DEMO_TRF_EXTRACTION.confidence_scores },
+      ...extraction,
+      confidence_scores: { ...extraction.confidence_scores },
     };
-    const fieldConfidence = demoFieldConfidence(DEMO_TRF_EXTRACTION);
+    const fieldConfidence = demoFieldConfidence(extraction);
     const prev = await Extraction.findOne({ documentId: job.documentId })
       .sort({ version: -1 })
       .lean();
@@ -306,7 +314,7 @@ export class DemoService {
       {
         $set: {
           status: 'completed',
-          displayTitle: DEMO_TRF_EXTRACTION.suggested_title,
+          displayTitle: extraction.suggested_title,
           updatedAt: now,
         },
       }
@@ -322,9 +330,6 @@ export class DemoService {
           projectId: job.projectId,
           deletedAt: null,
         }).lean();
-        const document = await Document.findOne({
-          documentId: job.documentId,
-        }).lean();
         await dispatchProjectWebhooks(coerceProjectWebhooks(project || {}), {
           event: 'document.processed',
           projectId: job.projectId,
@@ -333,7 +338,7 @@ export class DemoService {
           organisationId: job.organisationId,
           status: 'completed',
           originalFilename: document?.originalFilename || null,
-          displayTitle: DEMO_TRF_EXTRACTION.suggested_title,
+          displayTitle: extraction.suggested_title,
           extraction: {
             data: data as unknown as Record<string, unknown>,
             fieldConfidence,

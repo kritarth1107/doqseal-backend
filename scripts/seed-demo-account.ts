@@ -1,11 +1,7 @@
 /**
- * Seeds the DoqSeal demo account:
- *   email: demo@doqseal.com  OTP: 123456
- *   org: Zeroknow Technologies
- *   project: Test Request Forms(TRFs)
- *   sample: assets/demo/b-vijay-kumar-trf.jpeg (completed extraction)
+ * Seeds the DoqSeal demo account with all 5 Lupin TRF showcase files.
  *
- * Usage: npx ts-node scripts/seed-demo-account.ts
+ * Usage: npx ts-node --transpile-only scripts/seed-demo-account.ts
  */
 import dotenv from 'dotenv';
 import fs from 'fs';
@@ -16,7 +12,6 @@ import User from '../model/user.model';
 import Organisation from '../model/organisation.model';
 import Membership from '../model/membership.model';
 import Document from '../model/document.model';
-import Extraction from '../model/extraction.model';
 import ExtractionJob from '../model/extractionJob.model';
 import demoService from '../service/demo.service';
 import documentService from '../service/document.service';
@@ -25,70 +20,25 @@ import {
   DEMO_ORG_NAME,
   DEMO_ORG_SLUG,
   DEMO_PROJECT_NAME,
-  DEMO_TRF_EXTRACTION,
+  DEMO_TRF_VARIANTS,
   DEMO_USER_NAME,
-  demoFieldConfidence,
+  resolveDemoTrfExtraction,
 } from '../constants/demo.account';
 
 dotenv.config();
 dotenv.config({ path: '.env.local' });
 
-const IMAGE_CANDIDATES = [
-  path.resolve(__dirname, '../assets/demo/b-vijay-kumar-trf.jpeg'),
-  path.resolve(process.cwd(), 'assets/demo/b-vijay-kumar-trf.jpeg'),
-  process.env.DEMO_TRF_IMAGE_PATH || '',
-  path.resolve(
-    'd:/doqseal/doqseal-dashboard/test-trf/WhatsApp Image 2026-08-31 at 12.53.22 PM.jpeg'
-  ),
-].filter(Boolean);
+const DEMO_DIR = path.resolve(
+  'd:/doqseal/doqseal-dashboard/test-trf'
+);
 
-async function replaceDemoSample(
-  userId: string,
-  organisationId: string,
-  projectId: string
-) {
-  const imagePath = IMAGE_CANDIDATES.find((p) => fs.existsSync(p));
-  if (!imagePath) {
-    console.warn('No demo TRF image found — skip sample upload');
-    return;
-  }
-
-  // Soft-delete prior sample docs in this project so the new Lupin TRF is the showcase.
-  const prior = await Document.find({
-    organisationId,
-    projectId,
-    deletedAt: null,
-  });
-  for (const doc of prior) {
-    doc.deletedAt = new Date();
-    doc.status = 'failed';
-    await doc.save();
-  }
-
-  const buffer = fs.readFileSync(imagePath);
-  const uploaded = await documentService.uploadDocument({
-    userId,
-    organisationId,
-    projectId,
-    originalFilename: 'B Vijay Kumar — Lupin TRF.jpeg',
-    mimeType: 'image/jpeg',
-    buffer,
-    sharedWithOrganisation: true,
-  });
-
-  const job = await ExtractionJob.findOne({ jobId: uploaded.jobId });
-  if (job) {
-    job.demoRevealAt = new Date(0);
-    job.demoMode = true;
-    await job.save();
-    await demoService.writeDemoExtraction(job);
-  }
-
-  console.log(`Seeded sample document ${uploaded.documentId} (completed)`);
-  console.log(
-    `  Fields: ${DEMO_TRF_EXTRACTION.patient_name}, ${DEMO_TRF_EXTRACTION.patient_age}, ${DEMO_TRF_EXTRACTION.patient_gender}, ${DEMO_TRF_EXTRACTION.client_code}, ${DEMO_TRF_EXTRACTION.tests_requested}`
-  );
-}
+const DEMO_FILES = [
+  'WhatsApp Image 2026-08-31 at 12.53.21 PM (1).jpeg',
+  'WhatsApp Image 2026-08-31 at 12.53.21 PM.jpeg',
+  'WhatsApp Image 2026-08-31 at 12.53.22 PM (1).jpeg',
+  'WhatsApp Image 2026-08-31 at 12.53.22 PM (2).jpeg',
+  'WhatsApp Image 2026-08-31 at 12.53.22 PM.jpeg',
+];
 
 async function seed() {
   const uri = process.env.MONGODB_URI;
@@ -135,43 +85,55 @@ async function seed() {
 
   const project = await demoService.ensureTrfProject(orgId, ensured.userId);
   console.log(`Project ready: ${project.name} (${project.projectId})`);
-  console.log(`Fields: ${project.fields?.map((f: { key: string }) => f.key).join(', ')}`);
+  console.log(
+    `Fields: ${project.fields?.map((f: { key: string }) => f.key).join(', ')}`
+  );
 
-  // Always refresh the showcase sample to the Vijay Kumar Lupin TRF.
-  await replaceDemoSample(ensured.userId, orgId, project.projectId);
-
-  // Also refresh any leftover completed extractions that still hold old canned data.
-  const liveDocs = await Document.find({
+  // Soft-delete prior samples so we refresh the showcase set.
+  const prior = await Document.find({
     organisationId: orgId,
     projectId: project.projectId,
     deletedAt: null,
-  }).lean();
-  for (const doc of liveDocs) {
-    const latest = await Extraction.findOne({ documentId: doc.documentId })
-      .sort({ version: -1 });
-    if (latest) {
-      latest.data = {
-        ...DEMO_TRF_EXTRACTION,
-        confidence_scores: { ...DEMO_TRF_EXTRACTION.confidence_scores },
-      };
-      latest.fieldConfidence = demoFieldConfidence(DEMO_TRF_EXTRACTION);
-      latest.strategy = 'demo';
-      latest.status = 'approved';
-      latest.markModified('data');
-      latest.markModified('fieldConfidence');
-      await latest.save();
-      await Document.updateOne(
-        { documentId: doc.documentId },
-        { $set: { displayTitle: DEMO_TRF_EXTRACTION.suggested_title, status: 'completed' } }
-      );
-    }
+  });
+  for (const doc of prior) {
+    doc.deletedAt = new Date();
+    await doc.save();
   }
 
-  console.log('\nDemo account ready:');
+  for (const filename of DEMO_FILES) {
+    const fullPath = path.join(DEMO_DIR, filename);
+    if (!fs.existsSync(fullPath)) {
+      console.warn(`Missing demo file: ${fullPath}`);
+      continue;
+    }
+    const buffer = fs.readFileSync(fullPath);
+    const expected = resolveDemoTrfExtraction(filename, buffer.length);
+    const uploaded = await documentService.uploadDocument({
+      userId: ensured.userId,
+      organisationId: orgId,
+      projectId: project.projectId,
+      originalFilename: filename,
+      mimeType: 'image/jpeg',
+      buffer,
+      sharedWithOrganisation: true,
+    });
+
+    const job = await ExtractionJob.findOne({ jobId: uploaded.jobId });
+    if (job) {
+      job.demoRevealAt = new Date(0);
+      job.demoMode = true;
+      await job.save();
+      await demoService.writeDemoExtraction(job);
+    }
+
+    console.log(
+      `✓ ${expected.patient_name} | age ${expected.patient_age} | ${expected.patient_gender} | client ${expected.client_code} | ${expected.tests_requested}`
+    );
+  }
+
+  console.log(`\nDemo variants ready: ${DEMO_TRF_VARIANTS.length}`);
   console.log(`  Email: ${DEMO_EMAIL}`);
   console.log(`  OTP:   123456`);
-  console.log(`  Name:  ${DEMO_USER_NAME}`);
-  console.log(`  Org:   ${DEMO_ORG_NAME}`);
   console.log(`  Project: ${DEMO_PROJECT_NAME}`);
 
   await mongoose.disconnect();
