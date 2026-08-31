@@ -83,7 +83,13 @@ export class DemoService {
       return this.finalizeDemoJobIfDue(job as any);
     }
 
-    // Real-AI queued/processing job on demo org → convert to instant demo finish
+    // Only convert stuck jobs that belong to the canned showcase project.
+    // Other demo-org projects (e.g. Lupin) must keep real AI extraction.
+    if (!(await this.isDemoTrfProject(job.organisationId, job.projectId))) {
+      return false;
+    }
+
+    // Real-AI queued/processing job on the showcase TRF project → demo finish
     const ageMs = job.createdAt
       ? Date.now() - new Date(job.createdAt).getTime()
       : DEMO_PROCESSING_MS + 1;
@@ -174,11 +180,7 @@ export class DemoService {
     let project = await Project.findOne({
       organisationId,
       deletedAt: null,
-      $or: [
-        { name: DEMO_PROJECT_NAME },
-        { name: /trf/i },
-        { name: /test request form/i },
-      ],
+      name: DEMO_PROJECT_NAME,
     });
 
     if (!project) {
@@ -196,7 +198,6 @@ export class DemoService {
         sharedWithOrganisation: true,
       });
     } else {
-      project.name = DEMO_PROJECT_NAME;
       project.extractionHint = DEMO_PROJECT_HINT;
       if (!project.description) {
         project.description =
