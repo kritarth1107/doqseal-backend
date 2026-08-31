@@ -50,9 +50,11 @@ export class DemoService {
       deletedAt: null,
     }).lean();
 
-    // Any project upload on the demo org uses canned extraction (no AI).
-    // Name check kept as a soft preference for logging / future branching.
-    return Boolean(project);
+    if (!project) return false;
+
+    // Only the seeded showcase project uses canned extraction.
+    // Other demo-org projects (e.g. Lupin TRFs) run real AI.
+    return (project.name || '').trim() === DEMO_PROJECT_NAME;
   }
 
   /**
