@@ -10,6 +10,7 @@ import {
   DEMO_ORG_NAME,
   DEMO_ORG_SLUG,
   DEMO_PROCESSING_MS,
+  DEMO_PROJECT_FIELDS,
   DEMO_PROJECT_HINT,
   DEMO_PROJECT_NAME,
   DEMO_TRF_EXTRACTION,
@@ -190,19 +191,19 @@ export class DemoService {
         createdBy,
         name: DEMO_PROJECT_NAME,
         description:
-          'Demo TRF project — uploads use canned extraction (no AI) for demos.',
+          'Demo Lupin TRF project — uploads use canned extraction (no AI) for demos.',
         extractionHint: DEMO_PROJECT_HINT,
-        fields: [],
+        fields: [...DEMO_PROJECT_FIELDS],
         crossFieldRules: [],
         status: 'active',
         sharedWithOrganisation: true,
       });
     } else {
       project.extractionHint = DEMO_PROJECT_HINT;
-      if (!project.description) {
-        project.description =
-          'Demo TRF project — uploads use canned extraction (no AI) for demos.';
-      }
+      project.fields = [...DEMO_PROJECT_FIELDS] as typeof project.fields;
+      project.markModified('fields');
+      project.description =
+        'Demo Lupin TRF project — uploads use canned extraction (no AI) for demos.';
       await project.save();
     }
 
