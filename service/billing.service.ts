@@ -5,6 +5,11 @@ import BillingInvoice from '../model/billingInvoice.model';
 import quotaService from './quota.service';
 import planService from './plan.service';
 import cashfreeClient from '../utils/cashfree.client';
+import {
+  getCheckoutMode,
+  isCheckoutAvailable,
+  resolveBillingProvider,
+} from '../utils/billingProvider.util';
 import { STORAGE_DAY_RATE_INR } from '../constants/plans';
 
 export type PaymentMethod = {
@@ -127,8 +132,9 @@ export class BillingService {
         features: p.features,
         highlighted: p.highlighted,
       })),
-      checkoutAvailable: cashfreeClient.isConfigured(),
-      checkoutMode: cashfreeClient.getCheckoutMode(),
+      checkoutAvailable: isCheckoutAvailable(),
+      checkoutMode: getCheckoutMode(),
+      checkoutProvider: resolveBillingProvider(),
     };
   }
 

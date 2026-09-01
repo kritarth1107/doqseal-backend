@@ -2,9 +2,15 @@ import { FastifyRequest, FastifyReply } from 'fastify';
 import responseUtil from '../utils/response.util';
 import { resolveOrganisationId } from '../utils/org-access.util';
 import cashfreeSubscriptionService from '../service/cashfreeSubscription.service';
+import razorpaySubscriptionService from '../service/razorpaySubscription.service';
+import OrganisationSubscription from '../model/organisationSubscription.model';
 import cashfreeClient, {
   verifyCashfreeWebhookSignature,
 } from '../utils/cashfree.client';
+import razorpayClient, {
+  verifyRazorpayWebhookSignature,
+} from '../utils/razorpay.client';
+import { resolveBillingProvider } from '../utils/billingProvider.util';
 
 export class BillingController {
   public async subscribe(request: FastifyRequest, reply: FastifyReply) {
@@ -20,12 +26,26 @@ export class BillingController {
         return responseUtil.error(reply, 'planId is required', 400);
       }
 
-      const result = await cashfreeSubscriptionService.startCheckout({
+      const provider = resolveBillingProvider();
+      if (!provider) {
+        return responseUtil.error(
+          reply,
+          'No payment provider configured',
+          400
+        );
+      }
+
+      const params = {
         userId: sessionUser.userId,
         organisationId,
         planId: body.planId,
         customerPhone: body.customerPhone || '',
-      });
+      };
+
+      const result =
+        provider === 'razorpay'
+          ? await razorpaySubscriptionService.startCheckout(params)
+          : await cashfreeSubscriptionService.startCheckout(params);
 
       return responseUtil.success(reply, 'Checkout session created', result);
     } catch (error: any) {
@@ -49,11 +69,23 @@ export class BillingController {
         return responseUtil.error(reply, 'subscriptionId is required', 400);
       }
 
-      const result = await cashfreeSubscriptionService.syncAfterReturn({
-        userId: sessionUser.userId,
-        organisationId,
+      const sub = await OrganisationSubscription.findOne({
         subscriptionId: body.subscriptionId,
-      });
+        organisationId,
+      }).lean();
+
+      const result =
+        sub?.paymentProvider === 'razorpay'
+          ? await razorpaySubscriptionService.syncAfterReturn({
+              userId: sessionUser.userId,
+              organisationId,
+              subscriptionId: body.subscriptionId,
+            })
+          : await cashfreeSubscriptionService.syncAfterReturn({
+              userId: sessionUser.userId,
+              organisationId,
+              subscriptionId: body.subscriptionId,
+            });
 
       return responseUtil.success(reply, 'Subscription synced', result);
     } catch (error: any) {
@@ -65,14 +97,10 @@ export class BillingController {
     }
   }
 
-  public async webhook(request: FastifyRequest, reply: FastifyReply) {
+  public async cashfreeWebhook(request: FastifyRequest, reply: FastifyReply) {
     try {
-      const signature = String(
-        request.headers['x-webhook-signature'] || ''
-      );
-      const timestamp = String(
-        request.headers['x-webhook-timestamp'] || ''
-      );
+      const signature = String(request.headers['x-webhook-signature'] || '');
+      const timestamp = String(request.headers['x-webhook-timestamp'] || '');
       const rawBody =
         typeof (request as any).rawBody === 'string'
           ? (request as any).rawBody
@@ -94,6 +122,34 @@ export class BillingController {
       return responseUtil.success(reply, 'Webhook processed', result);
     } catch (error: any) {
       console.error('[cashfree] webhook error', error);
+      return responseUtil.error(
+        reply,
+        error.message || 'Webhook processing failed',
+        500
+      );
+    }
+  }
+
+  public async razorpayWebhook(request: FastifyRequest, reply: FastifyReply) {
+    try {
+      const signature = String(request.headers['x-razorpay-signature'] || '');
+      const rawBody =
+        typeof (request as any).rawBody === 'string'
+          ? (request as any).rawBody
+          : JSON.stringify(request.body || {});
+
+      if (razorpayClient.isConfigured() && signature) {
+        const ok = verifyRazorpayWebhookSignature({ signature, rawBody });
+        if (!ok) {
+          return responseUtil.error(reply, 'Invalid webhook signature', 401);
+        }
+      }
+
+      const payload = (request.body || {}) as Record<string, any>;
+      const result = await razorpaySubscriptionService.handleWebhook(payload);
+      return responseUtil.success(reply, 'Webhook processed', result);
+    } catch (error: any) {
+      console.error('[razorpay] webhook error', error);
       return responseUtil.error(
         reply,
         error.message || 'Webhook processing failed',

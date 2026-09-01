@@ -313,6 +313,7 @@ export class CashfreeSubscriptionService {
       organisationId,
       userId,
       planId,
+      paymentProvider: 'cashfree',
       cashfreeSubscriptionId: created.subscription_id || subscriptionId,
       cashfreeCfSubscriptionId: created.cf_subscription_id
         ? String(created.cf_subscription_id)

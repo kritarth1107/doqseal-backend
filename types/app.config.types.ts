@@ -72,6 +72,12 @@ export interface CashfreeConfig {
     apiVersion: string;
 }
 
+export interface RazorpayConfig {
+    keyId?: string;
+    keySecret?: string;
+    webhookSecret?: string;
+}
+
 export interface AppConfig {
     server: ServerConfig;
     jwt: JWTConfig;
@@ -86,4 +92,5 @@ export interface AppConfig {
     media?: MediaConfig;
     features: FeaturesConfig;
     cashfree: CashfreeConfig;
+    razorpay: RazorpayConfig;
 }

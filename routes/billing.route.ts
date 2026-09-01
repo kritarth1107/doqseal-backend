@@ -20,7 +20,19 @@ export const billingRouter: FastifyPluginAsync = async (
         response: { 200: ApiSuccessSchema, ...errorResponses },
       },
     },
-    billingController.webhook.bind(billingController)
+    billingController.cashfreeWebhook.bind(billingController)
+  );
+
+  fastify.post(
+    '/webhooks/razorpay',
+    {
+      schema: {
+        tags: ['Billing'],
+        summary: 'Razorpay subscription webhook',
+        response: { 200: ApiSuccessSchema, ...errorResponses },
+      },
+    },
+    billingController.razorpayWebhook.bind(billingController)
   );
 
   fastify.register(async (authed) => {

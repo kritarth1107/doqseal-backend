@@ -130,6 +130,12 @@ const config: AppConfig = {
             | 'production',
         apiVersion: process.env.CASHFREE_API_VERSION || '2025-01-01',
     },
+
+    razorpay: {
+        keyId: process.env.RAZORPAY_KEY_ID,
+        keySecret: process.env.RAZORPAY_KEY_SECRET,
+        webhookSecret: process.env.RAZORPAY_WEBHOOK_SECRET || process.env.RAZORPAY_KEY_SECRET,
+    },
 };
 
 // ==================================================

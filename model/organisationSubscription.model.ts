@@ -26,6 +26,7 @@ export interface IOrganisationSubscription extends Document {
   organisationId: string;
   userId: string;
   planId: string;
+  paymentProvider?: 'cashfree' | 'razorpay';
   cashfreeSubscriptionId: string;
   cashfreeCfSubscriptionId?: string | null;
   status: SubscriptionStatus;
@@ -80,6 +81,12 @@ const OrganisationSubscriptionSchema: Schema = new Schema(
     planId: {
       type: String,
       required: true,
+      index: true,
+    },
+    paymentProvider: {
+      type: String,
+      enum: ['cashfree', 'razorpay'],
+      default: 'cashfree',
       index: true,
     },
     cashfreeSubscriptionId: {
