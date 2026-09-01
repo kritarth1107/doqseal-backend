@@ -496,7 +496,7 @@ export class RazorpaySubscriptionService {
       paymentProvider: 'razorpay' as const,
       razorpaySubscriptionId: created.id,
       razorpayKeyId: razorpayClient.getKeyId(),
-      paymentUrl: created.short_url || null,
+      paymentUrl: null,
       checkoutMode: razorpayClient.getCheckoutMode(),
       amountInr: chargeAmountInr,
       billingInterval,
