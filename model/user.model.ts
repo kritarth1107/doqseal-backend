@@ -10,6 +10,8 @@ export interface IUser extends Document {
   avatar?: string;
   /** Blob object key for profile image */
   avatarStorageKey?: string | null;
+  /** Razorpay customer id for this user's checkouts */
+  razorpayCustomerId?: string | null;
   organisations?: {
     organisationId: string;
     role: string;
@@ -60,6 +62,10 @@ const UserSchema: Schema = new Schema(
       default: null,
     },
     avatarStorageKey: {
+      type: String,
+      default: null,
+    },
+    razorpayCustomerId: {
       type: String,
       default: null,
     },

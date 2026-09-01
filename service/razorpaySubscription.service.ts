@@ -412,11 +412,9 @@ export class RazorpaySubscriptionService {
     const subscriptionId = `sub_${uuidv4().replace(/-/g, '').slice(0, 20)}`;
     const returnUrl = `${config.server.liveFrontendUrl.replace(/\/$/, '')}/settings/billing?checkout=done&subscription_id=${subscriptionId}`;
 
-    const storedBilling = (org.planDetails as { billing?: Record<string, unknown> } | undefined)
-      ?.billing;
     const existingRazorpayCustomerId =
-      typeof storedBilling?.razorpayCustomerId === 'string'
-        ? storedBilling.razorpayCustomerId
+      typeof user.razorpayCustomerId === 'string'
+        ? user.razorpayCustomerId
         : null;
 
     const customer = await razorpayClient.findOrCreateCustomer({
@@ -427,13 +425,9 @@ export class RazorpaySubscriptionService {
       existingCustomerId: existingRazorpayCustomerId,
     });
 
-    await Organisation.updateOne(
-      { publicId: organisationId },
-      {
-        $set: {
-          'planDetails.billing.razorpayCustomerId': customer.id,
-        },
-      }
+    await User.updateOne(
+      { userId },
+      { $set: { razorpayCustomerId: customer.id } }
     );
 
     const razorpayPlan = await razorpayClient.createPlan({
@@ -502,6 +496,11 @@ export class RazorpaySubscriptionService {
       billingInterval,
       planId,
       returnUrl,
+      checkoutPrefill: {
+        name: user.name,
+        email: user.email,
+        ...(phone.length === 10 ? { contact: phone } : {}),
+      },
     };
   }
 

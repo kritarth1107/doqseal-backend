@@ -183,10 +183,11 @@ export class RazorpayClient {
 
   public async updateCustomer(
     customerId: string,
-    params: { name?: string; contact?: string }
+    params: { name?: string; email?: string; contact?: string }
   ) {
     const body: Record<string, unknown> = {};
     if (params.name) body.name = params.name;
+    if (params.email) body.email = params.email;
     if (params.contact) body.contact = params.contact;
     if (!Object.keys(body).length) return { id: customerId };
     return request<{ id: string }>(
@@ -207,7 +208,11 @@ export class RazorpayClient {
     if (params.existingCustomerId) {
       try {
         const stored = await this.getCustomer(params.existingCustomerId);
-        if (stored?.id) {
+        const storedEmail = String(stored?.email || '')
+          .trim()
+          .toLowerCase();
+        const requestedEmail = params.email.trim().toLowerCase();
+        if (stored?.id && storedEmail === requestedEmail) {
           await this.updateCustomer(stored.id, {
             name: params.name,
             contact: params.contact,
@@ -215,7 +220,7 @@ export class RazorpayClient {
           return { id: stored.id };
         }
       } catch {
-        // stored id invalid — fall through
+        // stored id invalid or email mismatch — fall through
       }
     }
 
