@@ -11,7 +11,15 @@ export interface IOrganisation extends Document {
   memberCount: number;
   logoUrl?: string;
   website?: string;
+  /** Verified email domain for auto-join (e.g. acme.com) */
+  verifiedDomain?: string | null;
+  /** Domain awaiting DNS verification */
+  pendingDomain?: string | null;
+  /** TXT verification token — proves domain ownership */
+  domainVerificationToken?: string | null;
+  domainVerifiedAt?: Date | null;
   isDomainVerified: boolean;
+  /** When true, users with matching verified email domain auto-join on login */
   autoJoinDomain: boolean;
   isActive: boolean;
   /** Demo workspace — canned TRF extraction, fixed OTP login */
@@ -63,6 +71,24 @@ const OrganisationSchema: Schema = new Schema(
       type: String,
       default: null,
     },
+    verifiedDomain: {
+      type: String,
+      default: null,
+      index: true,
+      sparse: true,
+    },
+    pendingDomain: {
+      type: String,
+      default: null,
+    },
+    domainVerificationToken: {
+      type: String,
+      default: null,
+    },
+    domainVerifiedAt: {
+      type: Date,
+      default: null,
+    },
     isDomainVerified: {
       type: Boolean,
       default: false,
@@ -103,6 +129,17 @@ const OrganisationSchema: Schema = new Schema(
 // ===== INDEXES =====
 OrganisationSchema.index({ slug: 1, deletedAt: 1 });
 OrganisationSchema.index({ isActive: 1, deletedAt: 1 });
+OrganisationSchema.index(
+  { verifiedDomain: 1, isDomainVerified: 1 },
+  {
+    unique: true,
+    partialFilterExpression: {
+      isDomainVerified: true,
+      verifiedDomain: { $type: 'string' },
+      deletedAt: null,
+    },
+  }
+);
 
 /**
  * Organisation Model

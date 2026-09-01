@@ -47,9 +47,10 @@ export class OrganisationService {
       name: organisation.name,
       slug: organisation.slug,
       website: organisation.website,
-      logoUrl: organisation.logoUrl,
-      isDomainVerified: (organisation as any).isDomainVerified,
-      autoJoinDomain: (organisation as any).autoJoinDomain,
+      verifiedDomain: (organisation as any).verifiedDomain || null,
+      isDomainVerified: Boolean((organisation as any).isDomainVerified),
+      autoJoinEnabled: Boolean((organisation as any).autoJoinDomain),
+      domainVerifiedAt: (organisation as any).domainVerifiedAt || null,
       memberCount: members.length,
       members
     };

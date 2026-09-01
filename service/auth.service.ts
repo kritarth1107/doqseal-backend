@@ -16,6 +16,7 @@ import {
   isDemoEmail,
 } from '../constants/demo.account';
 import demoService from './demo.service';
+import domainAccessService from './domainAccess.service';
 
 
 /**
@@ -125,6 +126,8 @@ export class AuthService {
       throw new Error('User not found after login');
     }
 
+    const autoJoined = await domainAccessService.tryAutoJoinForUser(user);
+
     // 4. Generate JWT and Session
     const { token: jwtToken, organisationName } = await this.createSessionToken(user, sessionData || { fingerprint: 'N/A' });
 
@@ -136,6 +139,7 @@ export class AuthService {
       },
       isNewUser,
       onboardingCompleted: user.onboardingCompleted !== false,
+      autoJoined,
       token: jwtToken
     };
   }
@@ -199,6 +203,8 @@ export class AuthService {
     };
     await user.save();
 
+    const autoJoined = await domainAccessService.tryAutoJoinForUser(user);
+
     // 3. Generate JWT and Session
     const { token: jwtToken, organisationName } = await this.createSessionToken(user, sessionData || { fingerprint: 'N/A' });
 
@@ -210,6 +216,7 @@ export class AuthService {
       },
       isNewUser,
       onboardingCompleted: user.onboardingCompleted !== false,
+      autoJoined,
       token: jwtToken
     };
   }

@@ -37,6 +37,7 @@ import { envelopeRouter } from './routes/envelope.route';
 import { envelopePublicRouter } from './routes/envelopePublic.route';
 import { chatRouter } from './routes/chat.route';
 import { billingRouter } from './routes/billing.route';
+import { domainAccessRouter } from './routes/domainAccess.route';
 
 
 
@@ -179,6 +180,7 @@ export class ServerSetup {
     this.app.register(userRouter, { prefix: `/${apiPrefix}/user` });
     this.app.register(apiKeyRouter, { prefix: `/${apiPrefix}/api-wickets` });
     this.app.register(organisationRouter, { prefix: `/${apiPrefix}/organisations` });
+    this.app.register(domainAccessRouter, { prefix: `/${apiPrefix}/organisations` });
     this.app.register(membershipRouter, { prefix: `/${apiPrefix}/organisations` });
     this.app.register(inviteRouter, { prefix: `/${apiPrefix}/invites` });
     this.app.register(auditRouter, { prefix: `/${apiPrefix}/organisations` });
