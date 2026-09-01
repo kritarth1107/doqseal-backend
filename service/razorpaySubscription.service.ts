@@ -122,9 +122,6 @@ export class RazorpaySubscriptionService {
     const phone = String(params.customerPhone || '')
       .replace(/\D/g, '')
       .slice(-10);
-    if (phone.length !== 10) {
-      throw new Error('A valid 10-digit Indian mobile number is required');
-    }
 
     const [org, user, plan] = await Promise.all([
       Organisation.findOne({ publicId: organisationId, deletedAt: null }),
@@ -144,7 +141,7 @@ export class RazorpaySubscriptionService {
     const customer = await razorpayClient.createCustomer({
       name: user.name,
       email: user.email,
-      contact: phone,
+      contact: phone.length === 10 ? phone : undefined,
       organisationId,
     });
 
@@ -176,7 +173,7 @@ export class RazorpaySubscriptionService {
       status: normalizeStatus(created.status),
       amountInr: plan.priceInrMonthly,
       currency: 'INR',
-      customerPhone: phone,
+      customerPhone: phone.length === 10 ? phone : '',
       metadata: {
         returnUrl,
         razorpayPlanId: razorpayPlan.id,

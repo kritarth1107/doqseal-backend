@@ -52,6 +52,58 @@ export const userRouter: FastifyPluginAsync = async (fastify: FastifyInstance) =
     },
     userController.createOrganisation
   );
+
+  fastify.get(
+    '/sessions',
+    {
+      schema: {
+        tags: ['User'],
+        summary: 'List active sessions',
+        security: bearerSecurity,
+        response: { 200: ApiSuccessSchema, ...errorResponses },
+      },
+    },
+    userController.listSessions
+  );
+
+  fastify.delete(
+    '/sessions/:fingerprint',
+    {
+      schema: {
+        tags: ['User'],
+        summary: 'Revoke a session',
+        security: bearerSecurity,
+        response: { 200: ApiSuccessSchema, ...errorResponses },
+      },
+    },
+    userController.revokeSession
+  );
+
+  fastify.post(
+    '/logout-all',
+    {
+      schema: {
+        tags: ['User'],
+        summary: 'Log out of all devices',
+        security: bearerSecurity,
+        response: { 200: ApiSuccessSchema, ...errorResponses },
+      },
+    },
+    userController.logoutAll
+  );
+
+  fastify.delete(
+    '/me',
+    {
+      schema: {
+        tags: ['User'],
+        summary: 'Delete current user account',
+        security: bearerSecurity,
+        response: { 200: ApiSuccessSchema, ...errorResponses },
+      },
+    },
+    userController.deleteAccount
+  );
 };
 
 export default userRouter;

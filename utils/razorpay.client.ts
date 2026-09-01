@@ -105,15 +105,18 @@ export class RazorpayClient {
   public async createCustomer(params: {
     name: string;
     email: string;
-    contact: string;
+    contact?: string;
     organisationId: string;
   }) {
-    return request<{ id: string }>('POST', '/customers', {
+    const body: Record<string, unknown> = {
       name: params.name,
       email: params.email,
-      contact: params.contact,
       notes: { organisation_id: params.organisationId },
-    });
+    };
+    if (params.contact) {
+      body.contact = params.contact;
+    }
+    return request<{ id: string }>('POST', '/customers', body);
   }
 
   public async createSubscription(params: {

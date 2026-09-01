@@ -231,6 +231,7 @@ export class CashfreeSubscriptionService {
     const phone = String(params.customerPhone || '')
       .replace(/\D/g, '')
       .slice(-10);
+
     if (phone.length !== 10) {
       throw new Error('A valid 10-digit Indian mobile number is required');
     }
