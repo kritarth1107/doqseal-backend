@@ -4,11 +4,10 @@ import ExtractionJob from '../model/extractionJob.model';
 import Organisation from '../model/organisation.model';
 import {
   FREE_PLAN,
-  listPublicPlans,
-  resolvePlanLimits,
   STORAGE_DAY_RATE_INR,
   type PlanLimits,
 } from '../constants/plans';
+import planService from './plan.service';
 
 export class QuotaService {
   private todayKey(): string {
@@ -42,11 +41,15 @@ export class QuotaService {
       deletedAt: null,
     }).lean();
     if (!org) return FREE_PLAN;
-    // Demo workspace (demo@doqseal.com) gets Growth; everyone else is Free.
+
+    // Demo workspace always gets Growth for demos
     if ((org as { isDemo?: boolean }).isDemo) {
-      return resolvePlanLimits({ planId: 'growth' });
+      return planService.getPlanById('growth');
     }
-    return FREE_PLAN;
+
+    const planId =
+      (org.planDetails as { planId?: string } | undefined)?.planId || 'free';
+    return planService.getPlanById(planId);
   }
 
   public async getStorageUsedBytes(organisationId: string): Promise<number> {
@@ -157,9 +160,10 @@ export class QuotaService {
 
   public async getUsage(organisationId: string) {
     const date = this.todayKey();
-    const plan = await this.getPlanLimits(organisationId);
-    const [quota, storageUsedBytes, extractionsUsed, billableDocs] =
+    const [plan, catalogPlans, quota, storageUsedBytes, extractionsUsed, billableDocs] =
       await Promise.all([
+        this.getPlanLimits(organisationId),
+        planService.listActivePlans(),
         UsageQuota.findOne({ organisationId, date }).lean(),
         this.getStorageUsedBytes(organisationId),
         this.getMonthlyExtractionCount(organisationId),
@@ -228,7 +232,20 @@ export class QuotaService {
         storageDayRateInr: STORAGE_DAY_RATE_INR,
         contactSales: Boolean(plan.contactSales),
       },
-      plans: listPublicPlans(),
+      plans: catalogPlans.map((p) => ({
+        id: p.id,
+        name: p.name,
+        priceInrMonthly: p.priceInrMonthly,
+        storageLimitBytes: p.storageLimitBytes,
+        monthlyExtractionLimit: p.monthlyExtractionLimit,
+        dailyApiRequestLimit: p.dailyApiRequestLimit,
+        storageDayRateInr: p.storageDayRateInr,
+        contactSales: p.contactSales,
+        description: p.description,
+        tagline: p.tagline,
+        features: p.features,
+        highlighted: p.highlighted,
+      })),
       quotas,
       storage: {
         usedBytes: storageUsedBytes,

@@ -120,6 +120,16 @@ const config: AppConfig = {
     features: {
         esignEnabled: process.env.ESIGN_ENABLED === 'true',
     },
+
+    cashfree: {
+        appId: process.env.CASHFREE_APP_ID,
+        secretKey: process.env.CASHFREE_SECRET_KEY,
+        webhookSecret: process.env.CASHFREE_WEBHOOK_SECRET || process.env.CASHFREE_SECRET_KEY,
+        env: (process.env.CASHFREE_ENV === 'production' ? 'production' : 'sandbox') as
+            | 'sandbox'
+            | 'production',
+        apiVersion: process.env.CASHFREE_API_VERSION || '2025-01-01',
+    },
 };
 
 // ==================================================

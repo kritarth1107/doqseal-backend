@@ -183,6 +183,10 @@ class ServerManager {
       await connectDB();
       console.log('✅ MongoDB connection established');
 
+      const planService = (await import('./service/plan.service')).default;
+      const seeded = await planService.seedDefaultPlans();
+      console.log(`✅ Plans catalog ready (${seeded} plans)`);
+
       console.log('🐇 Connecting to RabbitMQ...');
       await RabbitMQUtil.init();
       console.log('✅ RabbitMQ connection established');

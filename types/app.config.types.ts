@@ -64,6 +64,14 @@ export interface FeaturesConfig {
     esignEnabled: boolean;
 }
 
+export interface CashfreeConfig {
+    appId?: string;
+    secretKey?: string;
+    webhookSecret?: string;
+    env: 'sandbox' | 'production';
+    apiVersion: string;
+}
+
 export interface AppConfig {
     server: ServerConfig;
     jwt: JWTConfig;
@@ -77,4 +85,5 @@ export interface AppConfig {
     aiEngine: AiEngineConfig;
     media?: MediaConfig;
     features: FeaturesConfig;
+    cashfree: CashfreeConfig;
 }

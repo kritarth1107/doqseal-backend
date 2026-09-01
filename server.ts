@@ -36,6 +36,7 @@ import { auditRouter } from './routes/audit.route';
 import { envelopeRouter } from './routes/envelope.route';
 import { envelopePublicRouter } from './routes/envelopePublic.route';
 import { chatRouter } from './routes/chat.route';
+import { billingRouter } from './routes/billing.route';
 
 
 
@@ -114,6 +115,21 @@ export class ServerSetup {
     // 6. Validation & Serialization Compilers
     this.app.setValidatorCompiler(validatorCompiler);
     this.app.setSerializerCompiler(serializerCompiler);
+
+    // Preserve raw JSON body for Cashfree webhook signature verification
+    this.app.addContentTypeParser(
+      'application/json',
+      { parseAs: 'string' },
+      (req, body, done) => {
+        try {
+          (req as any).rawBody = body;
+          const json = body ? JSON.parse(body as string) : {};
+          done(null, json);
+        } catch (err) {
+          done(err as Error, undefined);
+        }
+      }
+    );
   }
 
   /**
@@ -172,6 +188,7 @@ export class ServerSetup {
     this.app.register(envelopeRouter, { prefix: `/${apiPrefix}/envelopes` });
     this.app.register(envelopePublicRouter, { prefix: `/${apiPrefix}/envelopes` });
     this.app.register(chatRouter, { prefix: `/${apiPrefix}/chat` });
+    this.app.register(billingRouter, { prefix: `/${apiPrefix}` });
 
 
 

@@ -1,16 +1,21 @@
 import Organisation from '../model/organisation.model';
 import StorageDayCharge from '../model/storageDayCharge.model';
+import OrganisationSubscription from '../model/organisationSubscription.model';
+import BillingInvoice from '../model/billingInvoice.model';
 import quotaService from './quota.service';
-import { listPublicPlans, PLANS, STORAGE_DAY_RATE_INR } from '../constants/plans';
+import planService from './plan.service';
+import cashfreeClient from '../utils/cashfree.client';
+import { STORAGE_DAY_RATE_INR } from '../constants/plans';
 
 export type PaymentMethod = {
+  type?: string;
   brand: string;
   last4: string;
-  expiryMonth?: number;
-  expiryYear?: number;
+  expiryMonth?: number | null;
+  expiryYear?: number | null;
 };
 
-export type BillingInvoice = {
+export type BillingInvoiceDto = {
   invoiceId: string;
   date: string;
   totalInr: number;
@@ -31,22 +36,42 @@ export class BillingService {
 
     const planLimits = await quotaService.getPlanLimits(organisationId);
     const usage = await quotaService.getUsage(organisationId);
+    const catalogPlans = await planService.listActivePlans();
+
+    const activeSub = await OrganisationSubscription.findOne({
+      organisationId,
+      status: { $in: ['active', 'bank_approval_pending', 'on_hold'] },
+    })
+      .sort({ updatedAt: -1 })
+      .lean();
 
     const billing = (org.planDetails as { billing?: Record<string, unknown> } | undefined)
       ?.billing;
 
-    const paymentMethod = (billing?.paymentMethod as PaymentMethod | null) ?? null;
+    const paymentMethod =
+      (activeSub?.paymentMethod as PaymentMethod | null) ||
+      (billing?.paymentMethod as PaymentMethod | null) ||
+      null;
 
-    const storedInvoices = Array.isArray(billing?.invoices)
-      ? (billing!.invoices as BillingInvoice[])
-      : [];
+    const dbInvoices = await BillingInvoice.find({ organisationId })
+      .sort({ date: -1 })
+      .limit(24)
+      .lean();
+
+    const storedInvoices: BillingInvoiceDto[] = dbInvoices.map((inv) => ({
+      invoiceId: inv.invoiceId,
+      date: inv.date,
+      totalInr: inv.totalInr,
+      status: inv.status,
+      description: inv.description,
+    }));
 
     const storageCharges = await StorageDayCharge.find({ organisationId })
       .sort({ date: -1 })
       .limit(90)
       .lean();
 
-    const chargeInvoices: BillingInvoice[] = storageCharges
+    const chargeInvoices: BillingInvoiceDto[] = storageCharges
       .filter((row) => row.amountInr > 0)
       .map((row) => ({
         invoiceId: `stor-${row.date}`,
@@ -60,10 +85,18 @@ export class BillingService {
       .sort((a, b) => b.date.localeCompare(a.date))
       .slice(0, 24);
 
-    const storageBalanceInr =
-      Math.round((usage.storage?.estimatedDailyChargeInr ?? 0) * 100) / 100;
+    const currentCatalog = catalogPlans.find((p) => p.id === planLimits.id);
 
-    const planFeatures = this.planFeatures(planLimits.id);
+    const renewsAt =
+      activeSub?.currentPeriodEnd || activeSub?.nextChargeAt
+        ? new Date(
+            (activeSub.currentPeriodEnd || activeSub.nextChargeAt) as Date
+          )
+            .toISOString()
+            .slice(0, 10)
+        : planLimits.id === 'free'
+          ? null
+          : this.nextRenewalDate();
 
     return {
       plan: {
@@ -72,80 +105,35 @@ export class BillingService {
         priceInrMonthly: planLimits.priceInrMonthly,
         isFree: planLimits.id === 'free',
         storageDayRateInr: STORAGE_DAY_RATE_INR,
-        features: planFeatures,
-        renewsAt: planLimits.id === 'free' ? null : this.nextRenewalDate(),
+        features: currentCatalog?.features ?? [],
+        tagline: currentCatalog?.tagline ?? '',
+        renewsAt,
+        subscriptionStatus: activeSub?.status || null,
       },
       usage,
       paymentMethod,
-      storageCredits: {
-        balanceInr: storageBalanceInr,
-        billableDocuments: usage.storage?.billableDocuments ?? 0,
-        rateInr: STORAGE_DAY_RATE_INR,
-        description:
-          'Charged per document per day while the original file is stored. Context is kept after TTL purge.',
-      },
       invoices,
-      plans: listPublicPlans().map((p) => ({
-        ...p,
-        features: this.planFeatures(p.id),
-        tagline: this.planTagline(p.id),
+      plans: catalogPlans.map((p) => ({
+        id: p.id,
+        name: p.name,
+        priceInrMonthly: p.priceInrMonthly,
+        storageLimitBytes: p.storageLimitBytes,
+        monthlyExtractionLimit: p.monthlyExtractionLimit,
+        dailyApiRequestLimit: p.dailyApiRequestLimit,
+        storageDayRateInr: p.storageDayRateInr,
+        contactSales: p.contactSales,
+        description: p.description,
+        tagline: p.tagline,
+        features: p.features,
+        highlighted: p.highlighted,
       })),
-      checkoutAvailable: false,
+      checkoutAvailable: cashfreeClient.isConfigured(),
+      checkoutMode: cashfreeClient.getCheckoutMode(),
     };
   }
 
-  private planTagline(planId: string): string {
-    const map: Record<string, string> = {
-      free: 'Try DoqSeal with limited storage and extractions',
-      starter: 'Small teams getting started with document AI',
-      growth: 'Growing teams with higher limits and API access',
-      scale: 'High-volume extraction and unlimited API',
-      custom: 'Enterprise pricing tailored to your workflow',
-    };
-    return map[planId] || '';
-  }
-
-  private planFeatures(planId: string): string[] {
-    const p =
-      planId in PLANS
-        ? PLANS[planId as keyof typeof PLANS]
-        : planId === 'custom'
-          ? null
-          : PLANS.free;
-
-    if (planId === 'custom') {
-      return [
-        'Custom extraction pricing',
-        'Flexible storage & API limits',
-        'Dedicated support',
-        `₹${STORAGE_DAY_RATE_INR}/doc/day storage metering`,
-      ];
-    }
-
-    if (!p) return [];
-
-    const storage =
-      p.storageLimitBytes >= 1024 * 1024 * 1024
-        ? `${Math.round(p.storageLimitBytes / (1024 * 1024 * 1024))} GB storage`
-        : `${Math.round(p.storageLimitBytes / (1024 * 1024))} MB storage`;
-
-    const api =
-      p.dailyApiRequestLimit === null
-        ? 'Unlimited API requests / day'
-        : p.dailyApiRequestLimit === 0
-          ? 'No API access'
-          : `${p.dailyApiRequestLimit.toLocaleString()} API requests / day`;
-
-    const base = [
-      storage,
-      `${p.monthlyExtractionLimit.toLocaleString()} AI extractions / month`,
-      api,
-      `₹${STORAGE_DAY_RATE_INR}/doc/day while file stored`,
-    ];
-
-    if (planId === 'free') return base;
-
-    return [`Everything in Free, plus higher limits`, ...base.slice(1)];
+  public async listPlans() {
+    return planService.listActivePlans();
   }
 
   private nextRenewalDate(): string {
