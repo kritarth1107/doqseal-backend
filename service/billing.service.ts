@@ -18,6 +18,7 @@ export type PaymentMethod = {
   last4: string;
   expiryMonth?: number | null;
   expiryYear?: number | null;
+  umn?: string | null;
 };
 
 export type BillingInvoiceDto = {
@@ -57,6 +58,14 @@ export class BillingService {
       (activeSub?.paymentMethod as PaymentMethod | null) ||
       (billing?.paymentMethod as PaymentMethod | null) ||
       null;
+
+    const storedMethods = (billing?.paymentMethods as PaymentMethod[] | undefined) || [];
+    const paymentMethods =
+      storedMethods.length > 0
+        ? storedMethods
+        : paymentMethod
+          ? [paymentMethod]
+          : [];
 
     const dbInvoices = await BillingInvoice.find({ organisationId })
       .sort({ date: -1 })
@@ -117,6 +126,7 @@ export class BillingService {
       },
       usage,
       paymentMethod,
+      paymentMethods,
       invoices,
       plans: catalogPlans.map((p) => ({
         id: p.id,

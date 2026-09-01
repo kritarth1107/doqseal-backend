@@ -17,6 +17,36 @@ export type RazorpaySubscription = {
   [key: string]: unknown;
 };
 
+export type RazorpayPayment = {
+  id: string;
+  method?: string;
+  status?: string;
+  amount?: number;
+  subscription_id?: string;
+  card?: {
+    id?: string;
+    last4?: string;
+    network?: string;
+    type?: string;
+    expiry_month?: number;
+    expiry_year?: number;
+  };
+  vpa?: string;
+  upi?: { vpa?: string };
+  bank?: string;
+  wallet?: string;
+  [key: string]: unknown;
+};
+
+export type RazorpayInvoice = {
+  id: string;
+  status?: string;
+  payment_id?: string;
+  subscription_id?: string;
+  amount?: number;
+  amount_paid?: number;
+};
+
 function authHeader(): string {
   const keyId = config.razorpay.keyId;
   const secret = config.razorpay.keySecret;
@@ -138,6 +168,24 @@ export class RazorpayClient {
     return request<RazorpaySubscription>(
       'GET',
       `/subscriptions/${encodeURIComponent(subscriptionId)}`
+    );
+  }
+
+  public async getPayment(paymentId: string): Promise<RazorpayPayment> {
+    return request<RazorpayPayment>(
+      'GET',
+      `/payments/${encodeURIComponent(paymentId)}`
+    );
+  }
+
+  public async listInvoices(params: {
+    subscriptionId: string;
+    count?: number;
+  }): Promise<{ items: RazorpayInvoice[] }> {
+    const count = params.count ?? 12;
+    return request<{ items: RazorpayInvoice[] }>(
+      'GET',
+      `/invoices?subscription_id=${encodeURIComponent(params.subscriptionId)}&count=${count}`
     );
   }
 

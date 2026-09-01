@@ -53,7 +53,14 @@ function mapPaymentMethodFromPayment(
 
   if (method === 'upi' || vpa) {
     const id = String(vpa || 'UPI');
-    return { type: 'upi', brand: 'UPI', last4: id.slice(-4), umn: vpa || null };
+    const last4 = id.length >= 4 ? id.slice(-4) : id;
+    return {
+      type: 'upi',
+      brand: 'UPI',
+      last4,
+      umn: vpa || null,
+      instrumentId: payment.id ? String(payment.id) : null,
+    };
   }
   if (method === 'card' || card.last4) {
     return {
@@ -62,15 +69,118 @@ function mapPaymentMethodFromPayment(
       last4: String(card.last4 || '****'),
       expiryMonth: card.expiry_month ? Number(card.expiry_month) : null,
       expiryYear: card.expiry_year ? Number(card.expiry_year) : null,
-      instrumentId: payment.id ? String(payment.id) : null,
+      instrumentId: card.id ? String(card.id) : payment.id ? String(payment.id) : null,
     };
   }
   if (method === 'emandate' || method === 'nach') {
     return { type: 'enach', brand: 'eNACH', last4: '****' };
   }
+  if (method === 'wallet' && payment.wallet) {
+    const wallet = String(payment.wallet);
+    return {
+      type: 'unknown',
+      brand: wallet,
+      last4: wallet.slice(-4).padStart(4, '*'),
+    };
+  }
+  if (method === 'netbanking' && payment.bank) {
+    const bank = String(payment.bank);
+    return {
+      type: 'unknown',
+      brand: bank,
+      last4: bank.slice(-4).padStart(4, '*'),
+    };
+  }
   return method
     ? { type: 'unknown', brand: method, last4: '****' }
     : null;
+}
+
+function paymentMethodKey(method: SavedPaymentMethod): string {
+  return [
+    method.type,
+    method.brand,
+    method.last4,
+    method.instrumentId || '',
+    method.umn || '',
+  ].join(':');
+}
+
+async function resolvePaymentMethod(params: {
+  paymentEntity?: Record<string, any> | null;
+  paymentId?: string | null;
+  providerSubscriptionId?: string | null;
+}): Promise<SavedPaymentMethod | null> {
+  const fromEntity = mapPaymentMethodFromPayment(params.paymentEntity);
+  if (fromEntity && fromEntity.last4 !== '****') {
+    return fromEntity;
+  }
+
+  if (params.paymentId) {
+    try {
+      const remote = await razorpayClient.getPayment(params.paymentId);
+      const fromRemote = mapPaymentMethodFromPayment(remote as Record<string, any>);
+      if (fromRemote) return fromRemote;
+    } catch (err) {
+      console.warn('[razorpay] getPayment failed', params.paymentId, err);
+    }
+  }
+
+  if (params.providerSubscriptionId) {
+    try {
+      const { items } = await razorpayClient.listInvoices({
+        subscriptionId: params.providerSubscriptionId,
+        count: 12,
+      });
+      const paid = items
+        .filter((inv) => inv.payment_id && inv.status === 'paid')
+        .sort((a, b) => String(b.id).localeCompare(String(a.id)));
+
+      for (const inv of paid) {
+        if (!inv.payment_id) continue;
+        try {
+          const remote = await razorpayClient.getPayment(inv.payment_id);
+          const mapped = mapPaymentMethodFromPayment(remote as Record<string, any>);
+          if (mapped) return mapped;
+        } catch {
+          // try next invoice
+        }
+      }
+    } catch (err) {
+      console.warn(
+        '[razorpay] listInvoices failed',
+        params.providerSubscriptionId,
+        err
+      );
+    }
+  }
+
+  return fromEntity;
+}
+
+async function persistPaymentMethodsOnOrg(
+  organisationId: string,
+  method: SavedPaymentMethod,
+  status?: SubscriptionStatus
+) {
+  const org = await Organisation.findOne({ publicId: organisationId }).lean();
+  const billing = (org?.planDetails as { billing?: Record<string, unknown> } | undefined)
+    ?.billing;
+  const existing = (billing?.paymentMethods as SavedPaymentMethod[] | undefined) || [];
+  const key = paymentMethodKey(method);
+  const already = existing.some((m) => paymentMethodKey(m) === key);
+  const paymentMethods = already
+    ? existing
+    : [{ ...method }, ...existing].slice(0, 10);
+
+  const update: Record<string, unknown> = {
+    'planDetails.billing.paymentMethod': method,
+    'planDetails.billing.paymentMethods': paymentMethods,
+    'planDetails.billing.updatedAt': new Date().toISOString(),
+  };
+  if (status) update['planDetails.billing.status'] = status;
+
+  await Organisation.updateOne({ publicId: organisationId }, { $set: update });
 }
 
 function nextMonthDate(): Date {
@@ -322,10 +432,14 @@ export class RazorpaySubscriptionService {
 
     try {
       const remote = await razorpayClient.getSubscription(sub.cashfreeSubscriptionId);
+      const paymentMethod = await resolvePaymentMethod({
+        providerSubscriptionId: sub.cashfreeSubscriptionId,
+      });
       await this.applySubscriptionState({
         providerSubscriptionId: sub.cashfreeSubscriptionId,
         status: normalizeStatus(remote.status),
         raw: remote as Record<string, any>,
+        paymentMethod,
       });
     } catch (err) {
       console.warn('[razorpay] syncAfterReturn failed', err);
@@ -394,10 +508,15 @@ export class RazorpaySubscriptionService {
 
     const paymentEntity = params.raw?.payment as Record<string, any> | undefined;
     const method =
-      params.paymentMethod || mapPaymentMethodFromPayment(paymentEntity);
+      params.paymentMethod ||
+      mapPaymentMethodFromPayment(paymentEntity);
 
     sub.status = params.status;
     if (method) sub.paymentMethod = method;
+
+    if (method) {
+      await persistPaymentMethodsOnOrg(sub.organisationId, method, params.status);
+    }
 
     if (params.status === 'active' || params.status === 'bank_approval_pending') {
       if (!sub.activatedAt && params.status === 'active') sub.activatedAt = new Date();
@@ -412,9 +531,13 @@ export class RazorpaySubscriptionService {
             'planDetails.billing.provider': 'razorpay',
             'planDetails.billing.subscriptionId': sub.subscriptionId,
             'planDetails.billing.razorpaySubscriptionId': sub.cashfreeSubscriptionId,
-            'planDetails.billing.paymentMethod': method || sub.paymentMethod,
             'planDetails.billing.status': params.status,
             'planDetails.billing.updatedAt': new Date().toISOString(),
+            ...(method
+              ? {
+                  'planDetails.billing.paymentMethod': method,
+                }
+              : {}),
           },
         }
       );
@@ -563,7 +686,11 @@ export class RazorpaySubscriptionService {
         : invoiceEntity?.id
           ? String(invoiceEntity.id)
           : null;
-    const paymentMethod = mapPaymentMethodFromPayment(paymentEntity);
+    const paymentMethod = await resolvePaymentMethod({
+      paymentEntity,
+      paymentId,
+      providerSubscriptionId,
+    });
 
     const status =
       inferStatusFromEvent(
