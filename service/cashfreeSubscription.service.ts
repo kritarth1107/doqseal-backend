@@ -110,6 +110,103 @@ function nextMonthDate(): Date {
   return d;
 }
 
+function normalizeWebhookEventType(payload: Record<string, any>): string {
+  return String(payload.type || payload.event || payload.event_type || '')
+    .trim()
+    .toUpperCase()
+    .replace(/[\s-]+/g, '_');
+}
+
+function extractCashfreeSubscriptionId(data: Record<string, any>): string {
+  const candidates = [
+    data.subscription_id,
+    data.cf_subscriptionId,
+    data.cf_subscription_id,
+    data.subscriptionId,
+    data.subscription?.subscription_id,
+    data.payment_gateway_details?.gateway_subscription_id,
+    data.order?.order_tags?.subscription_id,
+    data.order_tags?.subscription_id,
+    data.meta?.subscription_id,
+  ];
+
+  for (const candidate of candidates) {
+    if (candidate) return String(candidate);
+  }
+  return '';
+}
+
+function isIgnorableCashfreeEvent(type: string): boolean {
+  return (
+    type.includes('SETTLEMENT') ||
+    type.includes('DISPUTE') ||
+    type.includes('TERMINAL') ||
+    type.includes('VENDOR') ||
+    type.includes('ABANDONED') ||
+    type.includes('DROPPED') ||
+    type.includes('TDR') ||
+    type.includes('ICA_') ||
+    type.includes('VERIFICATION_UPDATE') ||
+    type.includes('CHECKOUT')
+  );
+}
+
+function inferSubscriptionStatusFromWebhook(
+  type: string,
+  data: Record<string, any>
+): SubscriptionStatus | null {
+  const paymentStatus = String(
+    data.payment_status || data.authorization_status || ''
+  ).toUpperCase();
+
+  if (
+    type.includes('SUBSCRIPTION_PAYMENT_SUCCESS') ||
+    type.includes('SUCCESS_PAYMENT') ||
+    (type.includes('PAYMENT') && type.includes('SUCCESS'))
+  ) {
+    return paymentStatus === 'FAILED' ? 'failed' : 'active';
+  }
+
+  if (
+    type.includes('SUBSCRIPTION_PAYMENT_FAILED') ||
+    type.includes('FAILED_PAYMENT') ||
+    (type.includes('PAYMENT') && type.includes('FAILED'))
+  ) {
+    return 'failed';
+  }
+
+  if (
+    type.includes('SUBSCRIPTION_AUTH') ||
+    type.includes('INSTRUMENT_ACTIVE') ||
+    (type.includes('INSTRUMENT') && type.includes('ACTIVE'))
+  ) {
+    const authStatus = String(
+      data.authorization_status || data.authorization_details?.authorization_status || ''
+    ).toUpperCase();
+    if (authStatus === 'ACTIVE' || authStatus === 'SUCCESS') return 'active';
+    return 'bank_approval_pending';
+  }
+
+  if (type.includes('INSTRUMENT') && type.includes('FAILED')) {
+    return 'failed';
+  }
+
+  if (
+    type.includes('SUBSCRIPTION_STATUS') &&
+    (type.includes('CANCEL') || type.includes('CANCELLED'))
+  ) {
+    return 'cancelled';
+  }
+
+  if (type.includes('EXPIRED')) return 'expired';
+  if (type.includes('ON_HOLD') || type.includes('PAUSED')) return 'on_hold';
+
+  if (paymentStatus === 'SUCCESS' || paymentStatus === 'ACTIVE') return 'active';
+  if (paymentStatus === 'FAILED') return 'failed';
+
+  return null;
+}
+
 export class CashfreeSubscriptionService {
   public async startCheckout(params: {
     userId: string;
@@ -388,54 +485,66 @@ export class CashfreeSubscriptionService {
   }
 
   public async handleWebhook(payload: Record<string, any>) {
-    const type = String(payload.type || payload.event || '').toUpperCase();
+    const type = normalizeWebhookEventType(payload);
     const data = (payload.data || payload) as Record<string, any>;
 
-    const cashfreeSubscriptionId = String(
-      data.subscription_id ||
-        data.cf_subscriptionId ||
-        data.subscriptionId ||
-        data.subscription?.subscription_id ||
-        ''
-    );
-
+    const cashfreeSubscriptionId = extractCashfreeSubscriptionId(data);
     if (!cashfreeSubscriptionId) {
-      console.warn('[cashfree] webhook missing subscription_id', type);
-      return { handled: false };
+      if (isIgnorableCashfreeEvent(type)) {
+        return { handled: true, action: 'ignored', type };
+      }
+      console.info('[cashfree] webhook without subscription_id', type);
+      return { handled: false, action: 'ignored', type };
     }
 
-    const statusRaw =
-      data.subscription_status ||
-      data.cf_subscriptionStatus ||
-      data.status ||
-      data.subscription?.subscription_status;
-
-    const status = normalizeStatus(statusRaw);
     const paymentMethod = mapPaymentMethodFromWebhook(data);
-
     const amount =
       Number(
         data.payment_amount ||
           data.cf_authAmount ||
           data.authorization_amount ||
+          data.order_amount ||
           data.amount ||
           0
       ) || null;
 
     const paymentId = String(
       data.payment_id ||
+        data.cf_payment_id ||
         data.cf_paymentId ||
         data.cf_subscriptionPaymentId ||
         data.payment?.payment_id ||
         ''
     );
 
+    if (type.includes('REFUND')) {
+      if (paymentId) {
+        await BillingInvoice.updateMany(
+          { cashfreePaymentId: paymentId },
+          {
+            $set: {
+              status: 'failed',
+              description: 'Payment refunded',
+            },
+          }
+        );
+      }
+      return { handled: true, action: 'refund_recorded', cashfreeSubscriptionId, type };
+    }
+
+    const inferredStatus = inferSubscriptionStatusFromWebhook(type, data);
+    const status =
+      inferredStatus ||
+      normalizeStatus(
+        data.subscription_status ||
+          data.cf_subscriptionStatus ||
+          data.status ||
+          data.subscription?.subscription_status
+      );
+
     await this.applySubscriptionState({
       cashfreeSubscriptionId,
-      status:
-        type.includes('PAYMENT') && type.includes('FAILED')
-          ? 'failed'
-          : status,
+      status,
       raw: data,
       paymentMethod,
       amountInr: amount,
