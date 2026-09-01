@@ -1,8 +1,9 @@
 import { FastifyRequest, FastifyReply } from 'fastify';
 import apiKeyService from '../service/apiKey.service';
+import organisationWebhookService from '../service/organisationWebhook.service';
 import responseUtil from '../utils/response.util';
 import { z } from 'zod';
-
+import { UpdateOrgWebhooksBody } from '../openapi/schemas';
 /**
  * ApiKey Controller - Handles API Key management endpoints
  */
@@ -17,7 +18,7 @@ export class ApiKeyController {
       const schema = z.object({
         organisationId: z.string(),
         name: z.string().min(3).max(50),
-        expiresInDays: z.number().optional() // 0 or undefined for "Never"
+        expiresInDays: z.coerce.number().int().positive().optional(),
       });
 
       const { organisationId, name, expiresInDays } = schema.parse(request.body);
@@ -28,14 +29,18 @@ export class ApiKeyController {
         return responseUtil.error(reply, 'Unauthorized: Only admins can manage API keys', 403);
       }
 
-      const apiKey = await apiKeyService.createApiKey({
+      const credentials = await apiKeyService.createApiKey({
         organisationId,
         name,
         createdBy: user.userId,
-        expiresInDays
+        expiresInDays,
       });
 
-      return responseUtil.success(reply, 'API Key generated successfully. Save it now, it won\'t be shown again.', apiKey);
+      return responseUtil.success(
+        reply,
+        'API credentials generated. Save the secret now — it will not be shown again.',
+        credentials
+      );
     } catch (error: any) {
       return responseUtil.error(reply, error.message || error.toString(), 400);
     }
@@ -82,6 +87,46 @@ export class ApiKeyController {
       return responseUtil.success(reply, 'API Key revoked successfully');
     } catch (error: any) {
       return responseUtil.error(reply, error.message || error.toString(), 400);
+    }
+  }
+
+  public async getWebhooks(request: FastifyRequest, reply: FastifyReply) {
+    try {
+      const user = (request as any).user;
+      const { organisationId } = request.params as { organisationId: string };
+      const data = await organisationWebhookService.getWebhooks(
+        organisationId,
+        user.userId
+      );
+      return responseUtil.success(reply, 'Webhooks retrieved successfully', data);
+    } catch (error: any) {
+      const status = error.message?.includes('access') || error.message?.includes('role')
+        ? 403
+        : error.message === 'Organisation not found'
+          ? 404
+          : 400;
+      return responseUtil.error(reply, error.message || error.toString(), status);
+    }
+  }
+
+  public async updateWebhooks(request: FastifyRequest, reply: FastifyReply) {
+    try {
+      const user = (request as any).user;
+      const { organisationId } = request.params as { organisationId: string };
+      const body = UpdateOrgWebhooksBody.parse(request.body);
+      const data = await organisationWebhookService.updateWebhooks(
+        organisationId,
+        user.userId,
+        body.webhooks
+      );
+      return responseUtil.success(reply, 'Webhooks updated successfully', data);
+    } catch (error: any) {
+      const status = error.message?.includes('access') || error.message?.includes('role')
+        ? 403
+        : error.message === 'Organisation not found'
+          ? 404
+          : 400;
+      return responseUtil.error(reply, error.message || error.toString(), status);
     }
   }
 }

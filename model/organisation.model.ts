@@ -24,6 +24,12 @@ export interface IOrganisation extends Document {
   isActive: boolean;
   /** Demo workspace — canned TRF extraction, fixed OTP login */
   isDemo?: boolean;
+  /** Organisation-wide webhook endpoint(s) — configured in API management */
+  webhooks?: {
+    url: string;
+    events: string[];
+    enabled?: boolean;
+  }[];
 
   deletedAt?: Date;
   createdAt: Date;
@@ -107,6 +113,16 @@ const OrganisationSchema: Schema = new Schema(
       type: Boolean,
       default: false,
       index: true,
+    },
+    webhooks: {
+      type: [
+        {
+          url: { type: String, required: true },
+          events: { type: [String], default: ['document.processed'] },
+          enabled: { type: Boolean, default: true },
+        },
+      ],
+      default: [],
     },
     deletedAt: {
       type: Date,

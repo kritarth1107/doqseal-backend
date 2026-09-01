@@ -1,24 +1,23 @@
+import Organisation from '../model/organisation.model';
 import {
   isWebhookEvent,
-  ProjectWebhook,
+  OrgWebhook,
   WEBHOOK_EVENTS,
   WebhookEvent,
 } from '../constants/webhook.events';
+import auditService from './audit.service';
 
-/**
- * Fire project webhooks for a selected event.
- * Failures are logged only — never fail the extraction / upload job.
- */
 export type WebhookPayload = {
   event: WebhookEvent;
-  projectId: string;
-  documentId: string;
-  jobId?: string | null;
   organisationId: string;
+  projectId?: string | null;
+  documentId?: string | null;
+  jobId?: string | null;
   status?: string | null;
   originalFilename?: string | null;
   displayTitle?: string | null;
   error?: string | null;
+  metadata?: Record<string, unknown>;
   extraction?: {
     data?: Record<string, unknown>;
     fieldConfidence?: Record<string, number>;
@@ -37,11 +36,9 @@ function isValidHttpUrl(url: string): boolean {
   }
 }
 
-/** Normalize API / legacy shapes into ProjectWebhook[]. */
-export function normalizeProjectWebhooks(input: unknown): ProjectWebhook[] {
+export function normalizeOrgWebhooks(input: unknown): OrgWebhook[] {
   if (!Array.isArray(input)) return [];
 
-  // Legacy: string[] of URLs → all events default to processed
   if (input.every((item) => typeof item === 'string')) {
     const urls = Array.from(
       new Set(
@@ -56,7 +53,7 @@ export function normalizeProjectWebhooks(input: unknown): ProjectWebhook[] {
       }
     }
     if (urls.length > 1) {
-      throw new Error('Only one webhook URL is allowed per project');
+      throw new Error('Only one webhook URL is allowed per organisation');
     }
     return urls.slice(0, 1).map((url) => ({
       url,
@@ -65,7 +62,7 @@ export function normalizeProjectWebhooks(input: unknown): ProjectWebhook[] {
     }));
   }
 
-  const webhooks: ProjectWebhook[] = [];
+  const webhooks: OrgWebhook[] = [];
   for (const raw of input) {
     if (!raw || typeof raw !== 'object') continue;
     const row = raw as Record<string, unknown>;
@@ -91,44 +88,49 @@ export function normalizeProjectWebhooks(input: unknown): ProjectWebhook[] {
     });
   }
 
-  // One webhook per project (last wins if duplicates)
-  const byUrl = new Map<string, ProjectWebhook>();
+  const byUrl = new Map<string, OrgWebhook>();
   for (const hook of webhooks) {
     byUrl.set(hook.url, hook);
   }
   const unique = Array.from(byUrl.values());
   if (unique.length > 1) {
-    throw new Error('Only one webhook URL is allowed per project');
+    throw new Error('Only one webhook URL is allowed per organisation');
   }
   return unique.slice(0, 1);
 }
 
-/** Convert legacy webhookUrls into webhooks when reading old docs. */
-export function coerceProjectWebhooks(project: {
-  webhooks?: unknown;
-  webhookUrls?: unknown;
-}): ProjectWebhook[] {
-  if (Array.isArray(project.webhooks) && project.webhooks.length) {
-    try {
-      // Prefer first valid webhook only
-      const normalized = normalizeProjectWebhooks(project.webhooks.slice(0, 1));
-      return normalized.slice(0, 1);
-    } catch {
-      return [];
-    }
+export function coerceOrgWebhooks(org: { webhooks?: unknown }): OrgWebhook[] {
+  if (!Array.isArray(org.webhooks) || !org.webhooks.length) return [];
+  try {
+    return normalizeOrgWebhooks(org.webhooks.slice(0, 1)).slice(0, 1);
+  } catch {
+    return [];
   }
-  if (Array.isArray(project.webhookUrls) && project.webhookUrls.length) {
-    try {
-      return normalizeProjectWebhooks(project.webhookUrls.slice(0, 1));
-    } catch {
-      return [];
-    }
-  }
-  return [];
 }
 
-export async function dispatchProjectWebhooks(
-  webhooks: ProjectWebhook[] | undefined | null,
+export async function getOrganisationWebhooks(
+  organisationId: string
+): Promise<OrgWebhook[]> {
+  const org = await Organisation.findOne({
+    publicId: organisationId,
+    deletedAt: null,
+  })
+    .select('webhooks')
+    .lean();
+  if (!org) return [];
+  return coerceOrgWebhooks(org);
+}
+
+export async function dispatchOrganisationWebhooks(
+  organisationId: string,
+  payload: WebhookPayload
+): Promise<void> {
+  const webhooks = await getOrganisationWebhooks(organisationId);
+  await dispatchWebhooks(webhooks, payload);
+}
+
+export async function dispatchWebhooks(
+  webhooks: OrgWebhook[] | undefined | null,
   payload: WebhookPayload
 ): Promise<void> {
   const targets = (webhooks || []).filter(
@@ -145,6 +147,9 @@ export async function dispatchProjectWebhooks(
     targets.map(async (hook) => {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), 8_000);
+      let statusCode: number | null = null;
+      let success = false;
+      let errorMessage: string | null = null;
       try {
         const res = await fetch(hook.url, {
           method: 'POST',
@@ -156,22 +161,86 @@ export async function dispatchProjectWebhooks(
           body,
           signal: controller.signal,
         });
+        statusCode = res.status;
+        success = res.ok;
         if (!res.ok) {
+          errorMessage = `HTTP ${res.status}`;
           console.warn(
-            `[webhook] ${hook.url} responded ${res.status} for ${payload.event} ${payload.documentId}`
+            `[webhook] ${hook.url} responded ${res.status} for ${payload.event}`
           );
         }
       } catch (error) {
+        errorMessage =
+          error instanceof Error ? error.message : 'Webhook request failed';
         console.warn(
-          `[webhook] failed ${hook.url} for ${payload.event} ${payload.documentId}:`,
-          error instanceof Error ? error.message : error
+          `[webhook] failed ${hook.url} for ${payload.event}:`,
+          errorMessage
         );
       } finally {
         clearTimeout(timer);
+        try {
+          await auditService.logEvent({
+            actorId: 'system:webhook',
+            organisationId: payload.organisationId,
+            action: success ? 'webhook.dispatched' : 'webhook.failed',
+            resourceType: 'webhook',
+            resourceId: payload.documentId || payload.organisationId,
+            metadata: {
+              documentId: payload.documentId ?? null,
+              projectId: payload.projectId ?? null,
+              jobId: payload.jobId ?? null,
+              event: payload.event,
+              url: hook.url,
+              success,
+              statusCode,
+              error: errorMessage,
+            },
+          });
+        } catch (auditErr) {
+          console.warn('[webhook] audit log failed', auditErr);
+        }
       }
     })
   );
 }
 
+/** @deprecated Use dispatchOrganisationWebhooks */
+export async function dispatchProjectWebhooks(
+  webhooks: OrgWebhook[] | undefined | null,
+  payload: WebhookPayload
+): Promise<void> {
+  return dispatchWebhooks(webhooks, payload);
+}
+
+/** @deprecated Use normalizeOrgWebhooks */
+export const normalizeProjectWebhooks = normalizeOrgWebhooks;
+
+/** @deprecated Use coerceOrgWebhooks */
+export function coerceProjectWebhooks(project: {
+  webhooks?: unknown;
+  webhookUrls?: unknown;
+}): OrgWebhook[] {
+  if (Array.isArray(project.webhooks) && project.webhooks.length) {
+    try {
+      return normalizeOrgWebhooks(project.webhooks.slice(0, 1)).slice(0, 1);
+    } catch {
+      return [];
+    }
+  }
+  if (Array.isArray(project.webhookUrls) && project.webhookUrls.length) {
+    try {
+      return normalizeOrgWebhooks(project.webhookUrls.slice(0, 1));
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
 export { WEBHOOK_EVENTS };
-export default { dispatchProjectWebhooks, normalizeProjectWebhooks };
+export default {
+  dispatchOrganisationWebhooks,
+  dispatchWebhooks,
+  getOrganisationWebhooks,
+  normalizeOrgWebhooks,
+};

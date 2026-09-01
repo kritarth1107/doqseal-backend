@@ -1,24 +1,18 @@
 import mongoose, { Schema, Document } from 'mongoose';
 
-/**
- * API Key Interface for TypeScript
- */
 export interface IApiKey extends Document {
   organisationId: string;
   name: string;
-  key: string;       // The full secret key (stored as is or hashed, here stored for simplicity but indexed)
-  keyHint: string;   // Visible part of the key (e.g., "sak_live_...abcd")
+  appId: string;
+  secretHint: string;
   status: 'ACTIVE' | 'REVOKED' | 'EXPIRED';
-  createdBy: string; // The userId who generated it
+  createdBy: string;
   expiresAt?: Date | null;
   lastUsedAt?: Date;
   createdAt: Date;
   updatedAt: Date;
 }
 
-/**
- * API Key Schema - Organisation-based authentication tokens
- */
 const ApiKeySchema: Schema = new Schema(
   {
     organisationId: {
@@ -31,15 +25,19 @@ const ApiKeySchema: Schema = new Schema(
       required: true,
       trim: true,
     },
-    key: {
+    appId: {
       type: String,
       required: true,
       unique: true,
+      uppercase: true,
+      trim: true,
       index: true,
     },
-    keyHint: {
+    secretHint: {
       type: String,
       required: true,
+      minlength: 6,
+      maxlength: 6,
     },
     status: {
       type: String,
@@ -52,7 +50,7 @@ const ApiKeySchema: Schema = new Schema(
     },
     expiresAt: {
       type: Date,
-      default: null, // null means "Never Expire"
+      default: null,
     },
     lastUsedAt: {
       type: Date,
@@ -65,7 +63,6 @@ const ApiKeySchema: Schema = new Schema(
   }
 );
 
-// Index for fast lookups by org
 ApiKeySchema.index({ organisationId: 1, status: 1 });
 
 const ApiKey = mongoose.model<IApiKey>('ApiKey', ApiKeySchema);

@@ -2,11 +2,7 @@ import Project, { IProject, IProjectField } from '../model/project.model';
 import { v4 as uuidv4 } from 'uuid';
 import { assertUserInOrganisation } from '../utils/org-access.util';
 import { visibilityFilter } from '../utils/visibility.util';
-import {
-  coerceProjectWebhooks,
-  normalizeProjectWebhooks,
-} from './webhook.service';
-import { ProjectWebhook } from '../constants/webhook.events';
+import { dispatchOrganisationWebhooks } from './webhook.service';
 
 export class ProjectService {
   public async createProject(params: {
@@ -15,8 +11,6 @@ export class ProjectService {
     name: string;
     description?: string;
     extractionHint?: string;
-    webhooks?: ProjectWebhook[];
-    webhookUrls?: string[];
     fields?: IProjectField[];
     crossFieldRules?: Record<string, unknown>[];
     sharedWithOrganisation?: boolean;
@@ -38,17 +32,13 @@ export class ProjectService {
         ? params.sharedWithOrganisation
         : true;
 
-    const webhooks = normalizeProjectWebhooks(
-      params.webhooks ?? params.webhookUrls ?? []
-    );
-
     const project = await Project.create({
       projectId: uuidv4(),
       organisationId,
       name: name.trim(),
       description: description || '',
       extractionHint: (extractionHint || '').trim(),
-      webhooks,
+      webhooks: [],
       webhookUrls: [],
       fields: fields || [],
       crossFieldRules: crossFieldRules || [],
@@ -56,6 +46,18 @@ export class ProjectService {
       createdBy: userId,
       sharedWithOrganisation,
     });
+
+    try {
+      await dispatchOrganisationWebhooks(organisationId, {
+        event: 'project.created',
+        organisationId,
+        projectId: project.projectId,
+        metadata: { name: project.name },
+        timestamp: new Date().toISOString(),
+      });
+    } catch (error) {
+      console.warn('[webhook] project.created dispatch failed', error);
+    }
 
     return this.toPublic(project);
   }
@@ -67,8 +69,6 @@ export class ProjectService {
     name?: string;
     description?: string;
     extractionHint?: string;
-    webhooks?: ProjectWebhook[];
-    webhookUrls?: string[];
     sharedWithOrganisation?: boolean;
     status?: 'active' | 'archived';
     deleteProject?: boolean;
@@ -108,14 +108,6 @@ export class ProjectService {
 
     if (typeof params.extractionHint === 'string') {
       project.extractionHint = params.extractionHint.trim();
-    }
-
-    if (params.webhooks !== undefined || params.webhookUrls !== undefined) {
-      project.webhooks = normalizeProjectWebhooks(
-        params.webhooks ?? params.webhookUrls ?? []
-      );
-      project.webhookUrls = [];
-      project.markModified('webhooks');
     }
 
     if (typeof params.sharedWithOrganisation === 'boolean') {
@@ -180,16 +172,12 @@ export class ProjectService {
   }
 
   private toPublic(project: IProject | Record<string, any>) {
-    const webhooks = coerceProjectWebhooks(project);
     return {
       projectId: project.projectId,
       organisationId: project.organisationId,
       name: project.name,
       description: project.description,
       extractionHint: project.extractionHint || '',
-      webhooks,
-      // Convenience for older clients / summary chips
-      webhookUrls: webhooks.map((w) => w.url),
       fields: project.fields,
       crossFieldRules: project.crossFieldRules,
       status: project.status,

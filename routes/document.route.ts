@@ -100,6 +100,20 @@ export const documentRouter: FastifyPluginAsync = async (
   );
 
   fastify.get(
+    '/:documentId/timeline',
+    {
+      schema: {
+        tags: ['Documents'],
+        summary: 'Get document activity timeline',
+        security: bearerSecurity,
+        params: DocumentIdParams,
+        response: { 200: ApiSuccessSchema, ...errorResponses },
+      },
+    },
+    documentController.getTimeline.bind(documentController)
+  );
+
+  fastify.get(
     '/:documentId',
     {
       schema: {

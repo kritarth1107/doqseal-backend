@@ -2,7 +2,6 @@ import { FastifyRequest, FastifyReply } from 'fastify';
 import projectService from '../service/project.service';
 import responseUtil from '../utils/response.util';
 import { resolveOrganisationId } from '../utils/org-access.util';
-import { ProjectWebhook } from '../constants/webhook.events';
 
 export class ProjectController {
   public create = async (request: FastifyRequest, reply: FastifyReply) => {
@@ -17,8 +16,6 @@ export class ProjectController {
         name: string;
         description?: string;
         extractionHint?: string;
-        webhooks?: ProjectWebhook[];
-        webhookUrls?: string[];
         fields?: any[];
         crossFieldRules?: Record<string, unknown>[];
         sharedWithOrganisation?: boolean;
@@ -38,8 +35,6 @@ export class ProjectController {
         name: body.name,
         description: body.description,
         extractionHint: body.extractionHint,
-        webhooks: body.webhooks,
-        webhookUrls: body.webhookUrls,
         fields: body.fields,
         crossFieldRules: body.crossFieldRules,
         sharedWithOrganisation: body.sharedWithOrganisation,
@@ -52,15 +47,7 @@ export class ProjectController {
         201
       );
     } catch (error: any) {
-      const status =
-        error.message?.includes('Invalid webhook') ||
-        error.message?.includes('Webhook URL') ||
-        error.message?.includes('Maximum 10') ||
-        error.message?.includes('Select at least one event')
-          ? 400
-          : error.message?.includes('access')
-            ? 403
-            : 500;
+      const status = error.message?.includes('access') ? 403 : 500;
       return responseUtil.error(
         reply,
         error.message || 'Failed to create project',
@@ -128,8 +115,6 @@ export class ProjectController {
         name?: string;
         description?: string;
         extractionHint?: string;
-        webhooks?: ProjectWebhook[];
-        webhookUrls?: string[];
         sharedWithOrganisation?: boolean;
         status?: 'active' | 'archived';
         deleteProject?: boolean;
@@ -142,8 +127,6 @@ export class ProjectController {
         name: body.name,
         description: body.description,
         extractionHint: body.extractionHint,
-        webhooks: body.webhooks,
-        webhookUrls: body.webhookUrls,
         sharedWithOrganisation: body.sharedWithOrganisation,
         status: body.status,
         deleteProject: body.deleteProject,
@@ -154,11 +137,7 @@ export class ProjectController {
       const status =
         error.message === 'Project not found'
           ? 404
-          : error.message?.includes('Invalid webhook') ||
-              error.message?.includes('Webhook URL') ||
-              error.message?.includes('Maximum 10') ||
-              error.message?.includes('Select at least one event') ||
-              error.message?.includes('at least 2')
+          : error.message?.includes('at least 2')
             ? 400
             : error.message?.includes('access')
               ? 403

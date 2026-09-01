@@ -111,6 +111,34 @@ export const ApiKeyParams = z.object({
   keyId: z.string(),
 });
 
+const webhookEventEnum = z.enum([
+  'document.uploaded',
+  'document.processing',
+  'document.processed',
+  'document.failed',
+  'document.deleted',
+  'document.purged',
+  'document.field_corrected',
+  'document.reprocessed',
+  'document.shared',
+  'extraction.started',
+  'extraction.completed',
+  'extraction.failed',
+  'project.created',
+  'api_key.created',
+  'api_key.revoked',
+]);
+
+export const OrgWebhookSchema = z.object({
+  url: z.string().url(),
+  events: z.array(webhookEventEnum).min(1),
+  enabled: z.boolean().optional(),
+});
+
+export const UpdateOrgWebhooksBody = z.object({
+  webhooks: z.array(OrgWebhookSchema).max(1),
+});
+
 // ── Projects ──────────────────────────────────────────
 export const CreateProjectBody = z.object({
   /** Optional — usually taken from `x-organisation-id` header */
@@ -118,27 +146,6 @@ export const CreateProjectBody = z.object({
   name: z.string().min(1),
   description: z.string().optional(),
   extractionHint: z.string().optional(),
-  webhooks: z
-    .array(
-      z.object({
-        url: z.string().url(),
-        events: z
-          .array(
-            z.enum([
-              'document.uploaded',
-              'document.processing',
-              'document.processed',
-              'document.failed',
-            ])
-          )
-          .min(1),
-        enabled: z.boolean().optional(),
-      })
-    )
-    .max(1)
-    .optional(),
-  /** @deprecated Prefer `webhooks` */
-  webhookUrls: z.array(z.string().url()).max(1).optional(),
   fields: z.array(z.any()).optional(),
   crossFieldRules: z.array(z.record(z.string(), z.any())).optional(),
   schema: z.any().optional(),
@@ -150,26 +157,6 @@ export const UpdateProjectBody = z.object({
   name: z.string().min(2).optional(),
   description: z.string().optional(),
   extractionHint: z.string().optional(),
-  webhooks: z
-    .array(
-      z.object({
-        url: z.string().url(),
-        events: z
-          .array(
-            z.enum([
-              'document.uploaded',
-              'document.processing',
-              'document.processed',
-              'document.failed',
-            ])
-          )
-          .min(1),
-        enabled: z.boolean().optional(),
-      })
-    )
-    .max(1)
-    .optional(),
-  webhookUrls: z.array(z.string().url()).max(1).optional(),
   sharedWithOrganisation: z.boolean().optional(),
   status: z.enum(['active', 'archived']).optional(),
   /** Soft-delete the project */

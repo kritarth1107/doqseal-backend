@@ -72,6 +72,38 @@ export class AuditService {
       },
     };
   }
+
+  public async listDocumentTimeline(
+    userId: string,
+    organisationId: string,
+    documentId: string
+  ) {
+    await assertUserInOrganisation(userId, organisationId);
+
+    const events = await AuditEvent.find({
+      organisationId,
+      $or: [
+        { resourceType: 'document', resourceId: documentId },
+        { resourceType: 'webhook', resourceId: documentId },
+        { resourceType: 'webhook', 'metadata.documentId': documentId },
+        { resourceType: 'extraction', 'metadata.documentId': documentId },
+        { resourceType: 'extraction', resourceId: documentId },
+      ],
+    })
+      .sort({ timestamp: -1 })
+      .limit(100)
+      .lean();
+
+    return events.map((event) => ({
+      actorId: event.actorId,
+      organisationId: event.organisationId,
+      action: event.action,
+      resourceType: event.resourceType,
+      resourceId: event.resourceId,
+      metadata: event.metadata,
+      timestamp: event.timestamp,
+    }));
+  }
 }
 
 export default new AuditService();

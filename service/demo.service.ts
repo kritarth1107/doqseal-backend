@@ -326,15 +326,10 @@ export class DemoService {
 
     if (job.projectId) {
       try {
-        const {
-          coerceProjectWebhooks,
-          dispatchProjectWebhooks,
-        } = await import('./webhook.service');
-        const project = await Project.findOne({
-          projectId: job.projectId,
-          deletedAt: null,
-        }).lean();
-        await dispatchProjectWebhooks(coerceProjectWebhooks(project || {}), {
+        const { dispatchOrganisationWebhooks } = await import(
+          './webhook.service'
+        );
+        await dispatchOrganisationWebhooks(job.organisationId, {
           event: 'document.processed',
           projectId: job.projectId,
           documentId: job.documentId,

@@ -281,15 +281,10 @@ export class DocumentService {
 
     if (projectId) {
       try {
-        const { coerceProjectWebhooks, dispatchProjectWebhooks } = await import(
+        const { dispatchOrganisationWebhooks } = await import(
           './webhook.service'
         );
-        const project = await Project.findOne({
-          projectId,
-          organisationId,
-          deletedAt: null,
-        }).lean();
-        await dispatchProjectWebhooks(coerceProjectWebhooks(project || {}), {
+        await dispatchOrganisationWebhooks(organisationId, {
           event: 'document.uploaded',
           projectId,
           documentId,
@@ -647,6 +642,31 @@ export class DocumentService {
       .lean();
 
     return documents.map(toListItem);
+  }
+
+  public async getDocumentTimeline(
+    userId: string,
+    organisationId: string,
+    documentId: string
+  ) {
+    await assertUserInOrganisation(userId, organisationId);
+
+    const document = await Document.findOne({
+      documentId,
+      organisationId,
+      deletedAt: null,
+      ...visibilityFilter(userId, 'uploadedBy'),
+    }).lean();
+
+    if (!document) {
+      throw new Error('Document not found');
+    }
+
+    return auditService.listDocumentTimeline(
+      userId,
+      organisationId,
+      documentId
+    );
   }
 }
 

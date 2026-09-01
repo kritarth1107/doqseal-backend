@@ -215,6 +215,33 @@ export class DocumentController {
     }
   }
 
+  public async getTimeline(request: FastifyRequest, reply: FastifyReply) {
+    const sessionUser = (request as any).user;
+    const { documentId } = request.params as { documentId: string };
+
+    try {
+      const organisationId = resolveOrganisationId(request);
+      const events = await documentService.getDocumentTimeline(
+        sessionUser.userId,
+        organisationId,
+        documentId
+      );
+
+      return responseUtil.success(
+        reply,
+        'Document timeline retrieved successfully',
+        events
+      );
+    } catch (error: any) {
+      const status = error.message === 'Document not found' ? 404 : 500;
+      return responseUtil.error(
+        reply,
+        error.message || 'Failed to retrieve document timeline',
+        status
+      );
+    }
+  }
+
   public async reprocess(request: FastifyRequest, reply: FastifyReply) {
     const sessionUser = (request as any).user;
     const { documentId } = request.params as { documentId: string };

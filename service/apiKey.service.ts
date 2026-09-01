@@ -1,20 +1,53 @@
 import ApiKey, { IApiKey } from '../model/apiKey.model';
-import crypto from 'crypto';
+import {
+  generateAppId,
+  generateSecretKey,
+  maskSecretHint,
+  verifySecretKey,
+} from '../utils/apiKeyCrypto.util';
 import quotaService from './quota.service';
 
-/**
- * ApiKey Service - Manages generation and lifecycle of Organisation API Keys
- */
+export type CreatedApiKeyCredentials = {
+  _id: string;
+  name: string;
+  appId: string;
+  secretKey: string;
+  expiresAt: Date | null;
+  createdAt: Date;
+};
+
+export type ApiKeyListItem = {
+  _id: string;
+  name: string;
+  appId: string;
+  secretHint: string;
+  status: string;
+  expiresAt?: Date | null;
+  createdAt: Date;
+  createdBy: {
+    id: string;
+    name: string;
+    avatar?: string;
+    email: string;
+  };
+};
+
 export class ApiKeyService {
-  /**
-   * Create a new API Key for an organisation
-   */
+  private async uniqueAppId(): Promise<string> {
+    for (let attempt = 0; attempt < 10; attempt++) {
+      const appId = generateAppId();
+      const exists = await ApiKey.exists({ appId });
+      if (!exists) return appId;
+    }
+    throw new Error('Failed to generate a unique APP ID. Please try again.');
+  }
+
   public async createApiKey(params: {
     organisationId: string;
     name: string;
     createdBy: string;
-    expiresInDays?: number; // Optional days until expiry
-  }): Promise<IApiKey> {
+    expiresInDays?: number;
+  }): Promise<CreatedApiKeyCredentials> {
     const { organisationId, name, createdBy, expiresInDays } = params;
 
     const plan = await quotaService.getPlanLimits(organisationId);
@@ -24,51 +57,60 @@ export class ApiKeyService {
       );
     }
 
-    // 1. Generate the "Real Logic" API Key
-    // Format: sak_[env]_[orgPrefix]_[secureEntropy]
-    const env = process.env.NODE_ENV === 'production' ? 'live' : 'test';
-    const orgPrefix = organisationId.split('-')[0]; // Use first part of Org UUID
-    const entropy = crypto.randomBytes(24).toString('hex');
-    
-    const fullKey = `sak_${env}_${orgPrefix}_${entropy}`;
-    const keyHint = `${fullKey.substring(0, 12)}...${fullKey.slice(-4)}`;
+    const appId = await this.uniqueAppId();
+    const { secretKey, secretHint } = generateSecretKey(appId);
 
-    // 2. Calculate expiration
-    let expiresAt = null;
+    let expiresAt: Date | null = null;
     if (expiresInDays && expiresInDays > 0) {
       expiresAt = new Date();
       expiresAt.setDate(expiresAt.getDate() + expiresInDays);
     }
 
-    // 3. Save to database
     const apiKey = await ApiKey.create({
       organisationId,
       name,
-      key: fullKey,
-      keyHint,
+      appId,
+      secretHint,
       createdBy,
       expiresAt,
-      status: 'ACTIVE'
+      status: 'ACTIVE',
     });
 
-    return apiKey;
+    try {
+      const { dispatchOrganisationWebhooks } = await import('./webhook.service');
+      await dispatchOrganisationWebhooks(organisationId, {
+        event: 'api_key.created',
+        organisationId,
+        metadata: { appId, name, keyId: String(apiKey._id) },
+        timestamp: new Date().toISOString(),
+      });
+    } catch (error) {
+      console.warn('[webhook] api_key.created dispatch failed', error);
+    }
+
+    return {
+      _id: String(apiKey._id),
+      name: apiKey.name,
+      appId,
+      secretKey,
+      expiresAt: apiKey.expiresAt ?? null,
+      createdAt: apiKey.createdAt,
+    };
   }
 
-  /**
-   * List all API keys for an organisation
-   */
-  public async listOrganisationKeys(organisationId: string): Promise<IApiKey[]> {
-    // Automatically update status for expired keys on list
+  public async listOrganisationKeys(
+    organisationId: string
+  ): Promise<ApiKeyListItem[]> {
     await ApiKey.updateMany(
-      { 
-        organisationId, 
-        status: 'ACTIVE', 
-        expiresAt: { $ne: null, $lt: new Date() } 
+      {
+        organisationId,
+        status: 'ACTIVE',
+        expiresAt: { $ne: null, $lt: new Date() },
       },
       { status: 'EXPIRED' }
     );
 
-    return ApiKey.aggregate([
+    const rows = await ApiKey.aggregate([
       { $match: { organisationId } },
       { $sort: { createdAt: -1 } },
       {
@@ -76,41 +118,91 @@ export class ApiKeyService {
           from: 'users',
           localField: 'createdBy',
           foreignField: 'userId',
-          as: 'creator'
-        }
+          as: 'creator',
+        },
       },
       { $unwind: { path: '$creator', preserveNullAndEmptyArrays: true } },
       {
         $project: {
           _id: 1,
           name: 1,
-          key: '$keyHint',
+          appId: 1,
+          secretHint: 1,
+          status: 1,
           expiresAt: 1,
           createdAt: 1,
           createdBy: {
             id: '$creator.userId',
             name: '$creator.name',
             avatar: '$creator.avatar',
-            email: '$creator.email'
-          }
-        }
-      }
-    ]) as any;
+            email: '$creator.email',
+          },
+        },
+      },
+    ]);
+
+    return rows.map((row) => ({
+      ...row,
+      secretHint: maskSecretHint(row.secretHint),
+    }));
   }
 
+  public async revokeKey(
+    organisationId: string,
+    keyId: string
+  ): Promise<void> {
+    const existing = await ApiKey.findOne({
+      _id: keyId,
+      organisationId,
+      status: { $ne: 'REVOKED' },
+    }).lean();
 
-  /**
-   * Revoke an API Key
-   */
-  public async revokeKey(organisationId: string, keyId: string): Promise<void> {
-    const result = await ApiKey.updateOne(
-      { _id: keyId, organisationId },
-      { status: 'REVOKED' }
-    );
-
-    if (result.matchedCount === 0) {
-      throw new Error('API Key not found or does not belong to this organisation');
+    if (!existing) {
+      throw new Error(
+        'API Key not found or does not belong to this organisation'
+      );
     }
+
+    await ApiKey.updateOne({ _id: keyId }, { status: 'REVOKED' });
+
+    try {
+      const { dispatchOrganisationWebhooks } = await import('./webhook.service');
+      await dispatchOrganisationWebhooks(organisationId, {
+        event: 'api_key.revoked',
+        organisationId,
+        metadata: { appId: existing.appId, name: existing.name, keyId },
+        timestamp: new Date().toISOString(),
+      });
+    } catch (error) {
+      console.warn('[webhook] api_key.revoked dispatch failed', error);
+    }
+  }
+
+  /** Authenticate an API request (for future public API routes) */
+  public async authenticateApiKey(
+    appId: string,
+    secretKey: string
+  ): Promise<IApiKey | null> {
+    const record = await ApiKey.findOne({
+      appId: appId.toUpperCase(),
+      status: 'ACTIVE',
+    });
+
+    if (!record) return null;
+    if (record.expiresAt && record.expiresAt < new Date()) {
+      await ApiKey.updateOne({ _id: record._id }, { status: 'EXPIRED' });
+      return null;
+    }
+    if (!verifySecretKey(record.appId, secretKey, record.secretHint)) {
+      return null;
+    }
+
+    await ApiKey.updateOne(
+      { _id: record._id },
+      { lastUsedAt: new Date() }
+    ).catch(() => undefined);
+
+    return record;
   }
 }
 

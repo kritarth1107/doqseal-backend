@@ -6,6 +6,7 @@ import {
   ApiKeyParams,
   ApiSuccessSchema,
   CreateApiKeyBody,
+  UpdateOrgWebhooksBody,
   bearerSecurity,
   errorResponses,
 } from '../openapi/schemas';
@@ -14,6 +15,35 @@ export const apiKeyRouter: FastifyPluginAsync = async (
   fastify: FastifyInstance
 ) => {
   fastify.addHook('preHandler', userAuth);
+
+  fastify.get(
+    '/webhooks/:organisationId',
+    {
+      schema: {
+        tags: ['API Keys'],
+        summary: 'Get organisation webhooks',
+        security: bearerSecurity,
+        params: ApiKeyOrgParams,
+        response: { 200: ApiSuccessSchema, ...errorResponses },
+      },
+    },
+    apiKeyController.getWebhooks
+  );
+
+  fastify.put(
+    '/webhooks/:organisationId',
+    {
+      schema: {
+        tags: ['API Keys'],
+        summary: 'Update organisation webhooks',
+        security: bearerSecurity,
+        params: ApiKeyOrgParams,
+        body: UpdateOrgWebhooksBody,
+        response: { 200: ApiSuccessSchema, ...errorResponses },
+      },
+    },
+    apiKeyController.updateWebhooks
+  );
 
   fastify.post(
     '/',
