@@ -1,15 +1,14 @@
 import UsageQuota from '../model/usageQuota.model';
 import Document from '../model/document.model';
 import ExtractionJob from '../model/extractionJob.model';
-
-/** Current starter plan limits (single plan until upgrades ship) */
-export const PLAN = {
-  id: 'starter',
-  name: 'Starter',
-  storageLimitBytes: 100 * 1024 * 1024, // 100 MB
-  monthlyExtractionLimit: 500,
-  dailyApiRequestLimit: 10_000,
-} as const;
+import Organisation from '../model/organisation.model';
+import {
+  FREE_PLAN,
+  listPublicPlans,
+  resolvePlanLimits,
+  STORAGE_DAY_RATE_INR,
+  type PlanLimits,
+} from '../constants/plans';
 
 export class QuotaService {
   private todayKey(): string {
@@ -29,11 +28,29 @@ export class QuotaService {
       const kb = Math.round((bytes / 1024) * 10) / 10;
       return { value: kb, unit: 'KB', label: `${kb} KB` };
     }
-    const mb = Math.round((bytes / (1024 * 1024)) * 100) / 100;
-    return { value: mb, unit: 'MB', label: `${mb} MB` };
+    if (bytes < 1024 * 1024 * 1024) {
+      const mb = Math.round((bytes / (1024 * 1024)) * 100) / 100;
+      return { value: mb, unit: 'MB', label: `${mb} MB` };
+    }
+    const gb = Math.round((bytes / (1024 * 1024 * 1024)) * 100) / 100;
+    return { value: gb, unit: 'GB', label: `${gb} GB` };
+  }
+
+  public async getPlanLimits(organisationId: string): Promise<PlanLimits> {
+    const org = await Organisation.findOne({
+      publicId: organisationId,
+      deletedAt: null,
+    }).lean();
+    if (!org) return FREE_PLAN;
+    // Demo workspace (demo@doqseal.com) gets Growth; everyone else is Free.
+    if ((org as { isDemo?: boolean }).isDemo) {
+      return resolvePlanLimits({ planId: 'growth' });
+    }
+    return FREE_PLAN;
   }
 
   public async getStorageUsedBytes(organisationId: string): Promise<number> {
+    // Only count bytes still stored in object storage (purged files free quota)
     const result = await Document.aggregate([
       {
         $match: {
@@ -62,35 +79,55 @@ export class QuotaService {
     });
   }
 
+  public async countBillableStoredDocuments(
+    organisationId: string
+  ): Promise<number> {
+    return Document.countDocuments({
+      organisationId,
+      deletedAt: null,
+      $or: [{ filePurgedAt: null }, { filePurgedAt: { $exists: false } }],
+    });
+  }
+
   public async assertUploadAllowed(
     organisationId: string,
     incomingBytes = 0
   ): Promise<void> {
+    const plan = await this.getPlanLimits(organisationId);
     const used = await this.getStorageUsedBytes(organisationId);
-    if (used + incomingBytes > PLAN.storageLimitBytes) {
-      const limitMb = PLAN.storageLimitBytes / (1024 * 1024);
+    if (used + incomingBytes > plan.storageLimitBytes) {
       throw new Error(
-        `Document storage quota exceeded (${limitMb} MB per organisation on the ${PLAN.name} plan)`
+        `Document storage quota exceeded (${this.formatBytes(plan.storageLimitBytes).label} on the ${plan.name} plan). Upgrade to continue.`
       );
     }
   }
 
   public async assertExtractionAllowed(organisationId: string): Promise<void> {
+    const plan = await this.getPlanLimits(organisationId);
     const count = await this.getMonthlyExtractionCount(organisationId);
-    if (count >= PLAN.monthlyExtractionLimit) {
+    if (count >= plan.monthlyExtractionLimit) {
       throw new Error(
-        `Monthly AI extraction quota exceeded (${PLAN.monthlyExtractionLimit} per organisation on the ${PLAN.name} plan)`
+        `Monthly AI extraction quota exceeded (${plan.monthlyExtractionLimit} on the ${plan.name} plan). Upgrade to continue.`
       );
     }
   }
 
   public async assertApiAllowed(organisationId: string): Promise<void> {
+    const plan = await this.getPlanLimits(organisationId);
+    if (plan.dailyApiRequestLimit === 0) {
+      throw new Error(
+        `API access is not included on the ${plan.name} plan. Upgrade to enable API requests.`
+      );
+    }
+    if (plan.dailyApiRequestLimit === null) {
+      return; // unlimited
+    }
     const date = this.todayKey();
     const quota = await UsageQuota.findOne({ organisationId, date }).lean();
     const count = quota?.apiRequestCount ?? 0;
-    if (count >= PLAN.dailyApiRequestLimit) {
+    if (count >= plan.dailyApiRequestLimit) {
       throw new Error(
-        `Daily API request quota exceeded (${PLAN.dailyApiRequestLimit.toLocaleString()} per day on the ${PLAN.name} plan)`
+        `Daily API request quota exceeded (${plan.dailyApiRequestLimit.toLocaleString()} / day on the ${plan.name} plan).`
       );
     }
   }
@@ -120,18 +157,23 @@ export class QuotaService {
 
   public async getUsage(organisationId: string) {
     const date = this.todayKey();
-    const [quota, storageUsedBytes, extractionsUsed] = await Promise.all([
-      UsageQuota.findOne({ organisationId, date }).lean(),
-      this.getStorageUsedBytes(organisationId),
-      this.getMonthlyExtractionCount(organisationId),
-    ]);
+    const plan = await this.getPlanLimits(organisationId);
+    const [quota, storageUsedBytes, extractionsUsed, billableDocs] =
+      await Promise.all([
+        UsageQuota.findOne({ organisationId, date }).lean(),
+        this.getStorageUsedBytes(organisationId),
+        this.getMonthlyExtractionCount(organisationId),
+        this.countBillableStoredDocuments(organisationId),
+      ]);
 
     const apiUsed = quota?.apiRequestCount ?? 0;
+    const apiLimit = plan.dailyApiRequestLimit;
     const usedFmt = this.formatBytes(storageUsedBytes);
-    const limitFmt = this.formatBytes(PLAN.storageLimitBytes);
+    const limitFmt = this.formatBytes(plan.storageLimitBytes);
     const storageUsedMb =
       Math.round((storageUsedBytes / (1024 * 1024)) * 100) / 100;
-    const storageLimitMb = PLAN.storageLimitBytes / (1024 * 1024);
+    const storageLimitMb =
+      Math.round((plan.storageLimitBytes / (1024 * 1024)) * 100) / 100;
 
     const quotas = [
       {
@@ -141,7 +183,7 @@ export class QuotaService {
         limit: storageLimitMb,
         unit: 'MB',
         usedRaw: storageUsedBytes,
-        limitRaw: PLAN.storageLimitBytes,
+        limitRaw: plan.storageLimitBytes,
         usedLabel: usedFmt.label,
         limitLabel: limitFmt.label,
         utilisedText: `${usedFmt.label} utilised of ${limitFmt.label}`,
@@ -150,44 +192,64 @@ export class QuotaService {
         id: 'extractions',
         name: 'AI extractions / month',
         used: extractionsUsed,
-        limit: PLAN.monthlyExtractionLimit,
+        limit: plan.monthlyExtractionLimit,
         unit: '',
         usedLabel: extractionsUsed.toLocaleString(),
-        limitLabel: PLAN.monthlyExtractionLimit.toLocaleString(),
-        utilisedText: `${extractionsUsed.toLocaleString()} utilised of ${PLAN.monthlyExtractionLimit.toLocaleString()}`,
+        limitLabel: plan.monthlyExtractionLimit.toLocaleString(),
+        utilisedText: `${extractionsUsed.toLocaleString()} utilised of ${plan.monthlyExtractionLimit.toLocaleString()}`,
       },
       {
         id: 'api',
         name: 'API requests / day',
         used: apiUsed,
-        limit: PLAN.dailyApiRequestLimit,
+        limit: apiLimit,
         unit: '',
         usedLabel: apiUsed.toLocaleString(),
-        limitLabel: PLAN.dailyApiRequestLimit.toLocaleString(),
-        utilisedText: `${apiUsed.toLocaleString()} utilised of ${PLAN.dailyApiRequestLimit.toLocaleString()}`,
+        limitLabel:
+          apiLimit === null ? 'Unlimited' : apiLimit.toLocaleString(),
+        utilisedText:
+          apiLimit === null
+            ? `${apiUsed.toLocaleString()} utilised (unlimited)`
+            : `${apiUsed.toLocaleString()} utilised of ${apiLimit.toLocaleString()}`,
       },
     ];
+
+    const estimatedStorageDayChargeInr =
+      Math.round(billableDocs * STORAGE_DAY_RATE_INR * 100) / 100;
 
     return {
       date,
       plan: {
-        id: PLAN.id,
-        name: PLAN.name,
-        upgradeAvailable: false,
+        id: plan.id,
+        name: plan.name,
+        priceInrMonthly: plan.priceInrMonthly,
+        upgradeAvailable: plan.id === 'free' || plan.id === 'starter' || plan.id === 'growth',
+        isFree: plan.id === 'free',
+        storageDayRateInr: STORAGE_DAY_RATE_INR,
+        contactSales: Boolean(plan.contactSales),
       },
+      plans: listPublicPlans(),
       quotas,
       storage: {
         usedBytes: storageUsedBytes,
-        limitBytes: PLAN.storageLimitBytes,
+        limitBytes: plan.storageLimitBytes,
         usedLabel: usedFmt.label,
         limitLabel: limitFmt.label,
         utilisedText: `${usedFmt.label} utilised of ${limitFmt.label}`,
+        billableDocuments: billableDocs,
+        estimatedDailyChargeInr: estimatedStorageDayChargeInr,
       },
       uploadCount: quota?.uploadCount ?? 0,
-      limit: PLAN.dailyApiRequestLimit,
-      remaining: Math.max(PLAN.dailyApiRequestLimit - apiUsed, 0),
+      limit: apiLimit ?? Number.MAX_SAFE_INTEGER,
+      remaining:
+        apiLimit === null
+          ? Number.MAX_SAFE_INTEGER
+          : Math.max(apiLimit - apiUsed, 0),
     };
   }
 }
 
 export default new QuotaService();
+
+/** @deprecated Use quotaService.getPlanLimits — kept for older imports */
+export const PLAN = FREE_PLAN;

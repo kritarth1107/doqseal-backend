@@ -14,8 +14,13 @@ export class JobService {
     documentId: string;
     organisationId: string;
     projectId?: string | null;
+    userContext?: string | null;
   }) {
     const { documentId, organisationId, projectId } = params;
+    const userContext =
+      typeof params.userContext === 'string' && params.userContext.trim()
+        ? params.userContext.trim().slice(0, 4000)
+        : null;
 
     const useDemoExtraction = await demoService.isDemoTrfProject(
       organisationId,
@@ -40,6 +45,7 @@ export class JobService {
         startedAt: new Date(),
         demoMode: true,
         demoRevealAt: revealAt,
+        userContext,
       });
 
       await Document.updateOne(
@@ -83,6 +89,7 @@ export class JobService {
       organisationId,
       projectId: projectId || null,
       status: 'queued',
+      userContext,
     });
 
     await Document.updateOne(

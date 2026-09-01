@@ -297,6 +297,9 @@ export class AuthService {
         : `${name.split(' ')[0].toLowerCase()}-${uuidv4().split('-')[0]}`,
       memberCount: 1,
       isDemo: isDemoEmail(email),
+      planDetails: isDemoEmail(email)
+        ? { planId: 'growth' }
+        : { planId: 'free' },
       createdBy: userId
     });
 

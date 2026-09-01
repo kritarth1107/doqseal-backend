@@ -40,6 +40,15 @@ export interface IDocument extends MongooseDocument {
   deletedAt?: Date | null;
   /** When the original binary was purged from object storage */
   filePurgedAt?: Date | null;
+  /**
+   * Days to keep the original file after upload (min 15).
+   * Null when keepForever is true.
+   */
+  retentionDays?: number | null;
+  /** If true, original file is kept until the user manually deletes it */
+  keepForever?: boolean;
+  /** When the original file is scheduled to be purged (null if forever) */
+  fileExpiresAt?: Date | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -139,12 +148,34 @@ const DocumentSchema: Schema = new Schema(
       default: null,
       index: true,
     },
+    retentionDays: {
+      type: Number,
+      default: 15,
+      min: 15,
+    },
+    keepForever: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
+    fileExpiresAt: {
+      type: Date,
+      default: null,
+      index: true,
+    },
   },
   {
     timestamps: true,
     collection: 'documents',
   }
 );
+
+DocumentSchema.index({
+  fileExpiresAt: 1,
+  filePurgedAt: 1,
+  keepForever: 1,
+  deletedAt: 1,
+});
 
 DocumentSchema.index({ organisationId: 1, projectId: 1, deletedAt: 1 });
 DocumentSchema.index({ projectId: 1, status: 1, deletedAt: 1 });

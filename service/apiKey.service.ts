@@ -1,6 +1,6 @@
 import ApiKey, { IApiKey } from '../model/apiKey.model';
-import { v4 as uuidv4 } from 'uuid';
 import crypto from 'crypto';
+import quotaService from './quota.service';
 
 /**
  * ApiKey Service - Manages generation and lifecycle of Organisation API Keys
@@ -16,6 +16,13 @@ export class ApiKeyService {
     expiresInDays?: number; // Optional days until expiry
   }): Promise<IApiKey> {
     const { organisationId, name, createdBy, expiresInDays } = params;
+
+    const plan = await quotaService.getPlanLimits(organisationId);
+    if (plan.dailyApiRequestLimit === 0) {
+      throw new Error(
+        `API keys are not available on the ${plan.name} plan. Upgrade to enable API access.`
+      );
+    }
 
     // 1. Generate the "Real Logic" API Key
     // Format: sak_[env]_[orgPrefix]_[secureEntropy]

@@ -30,7 +30,13 @@ export class ChatService {
     payload: ChatPayload
   ): Promise<ChatResult> {
     await assertUserInOrganisation(userId, payload.organisationId);
-    await quotaService.trackApiRequest(payload.organisationId);
+
+    // External API quota: free plan has 0 API calls (keys blocked).
+    // Dashboard session chat remains available on free so users can use extracted context.
+    const plan = await quotaService.getPlanLimits(payload.organisationId);
+    if (plan.dailyApiRequestLimit !== 0) {
+      await quotaService.trackApiRequest(payload.organisationId);
+    }
 
     const baseUrl = config.aiEngine.url.replace(/\/$/, '');
 

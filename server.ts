@@ -192,6 +192,18 @@ export class ServerSetup {
 
       await this.app.listen({ port: this.PORT, host: '0.0.0.0' });
 
+      // TTL file purge + daily storage-day accrual (every hour; accrual is idempotent)
+      const billingMeter = (await import('./service/billingMeter.service')).default;
+      const runJobs = () => {
+        void billingMeter.runDailyJobs().then((result) => {
+          if (result.purge.purgedCount > 0 || result.charges.organisationsBilled > 0) {
+            console.log('[billing-meter]', JSON.stringify(result));
+          }
+        }).catch((err) => console.warn('[billing-meter] failed', err));
+      };
+      runJobs();
+      setInterval(runJobs, 60 * 60 * 1000);
+
       console.log(`
 ==================================================
 🚀 DOQSEAL API SERVER ACTIVATED

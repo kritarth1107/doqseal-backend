@@ -1,43 +1,35 @@
-import axios from 'axios';
-import Organisation from '../model/organisation.model';
 import Document from '../model/document.model';
-import Extraction from '../model/extraction.model';
-import ExtractionJob from '../model/extractionJob.model';
-import AuditEvent from '../model/auditEvent.model';
-import Membership from '../model/membership.model';
-import User from '../model/user.model';
+import Organisation from '../model/organisation.model';
 import auditService from './audit.service';
-import config from '../config/app.config';
 import { deleteEncryptedObject } from '../utils/blob-storage.util';
+import { MIN_RETENTION_DAYS } from '../constants/plans';
+import User from '../model/user.model';
+import Membership from '../model/membership.model';
+import AuditEvent from '../model/auditEvent.model';
 
-const DEFAULT_RETENTION_DAYS = 365;
 const REDACTED = '[redacted]';
 
+/**
+ * Retention: after per-document TTL, delete the original binary only.
+ * Extraction data + RAG context stay for AI chat.
+ * keepForever docs are never auto-purged.
+ */
 export class RetentionService {
-  public async purgeExpiredDocuments(orgId: string) {
-    const organisation = await Organisation.findOne({
-      publicId: orgId,
+  /** Purge expired originals across all orgs (or one org). */
+  public async purgeExpiredFiles(orgId?: string) {
+    const now = new Date();
+    const filter: Record<string, unknown> = {
       deletedAt: null,
-    }).lean();
-
-    if (!organisation) {
-      throw new Error('Organisation not found');
+      keepForever: { $ne: true },
+      filePurgedAt: null,
+      fileExpiresAt: { $lte: now, $ne: null },
+      storagePath: { $nin: [null, ''] },
+    };
+    if (orgId) {
+      filter.organisationId = orgId;
     }
 
-    const retentionDays =
-      typeof organisation.planDetails?.retentionDays === 'number'
-        ? organisation.planDetails.retentionDays
-        : DEFAULT_RETENTION_DAYS;
-
-    const cutoff = new Date();
-    cutoff.setDate(cutoff.getDate() - retentionDays);
-
-    const expiredDocuments = await Document.find({
-      organisationId: orgId,
-      deletedAt: null,
-      createdAt: { $lt: cutoff },
-    });
-
+    const expiredDocuments = await Document.find(filter).limit(500);
     let purgedCount = 0;
 
     for (const document of expiredDocuments) {
@@ -51,33 +43,24 @@ export class RetentionService {
         // Object may already be missing
       }
 
-      await Promise.all([
-        Extraction.deleteMany({ documentId: document.documentId }),
-        ExtractionJob.deleteMany({ documentId: document.documentId }),
-      ]);
-
-      try {
-        const baseUrl = config.aiEngine.url.replace(/\/$/, '');
-        await axios.delete(`${baseUrl}/rag/documents/${document.documentId}`, {
-          params: { organisationId: orgId },
-          timeout: 15_000,
-        });
-      } catch (error) {
-        console.warn('RAG cascade delete failed during retention purge:', error);
-      }
-
-      document.deletedAt = new Date();
-      document.status = 'failed';
+      document.filePurgedAt = new Date();
+      document.storagePath = '';
+      document.storageUri = null;
+      document.encryption = null;
+      document.isEncrypted = false;
+      // Keep status as completed/failed — context still usable
       await document.save();
 
       await auditService.logEvent({
         actorId: 'system:retention',
-        organisationId: orgId,
-        action: 'document.retention_purge',
+        organisationId: document.organisationId,
+        action: 'document.file_ttl_purge',
         resourceType: 'document',
         resourceId: document.documentId,
         metadata: {
-          retentionDays,
+          retentionDays: document.retentionDays,
+          fileExpiresAt: document.fileExpiresAt,
+          contextRetained: true,
           originalCreatedAt: document.createdAt,
         },
       });
@@ -86,10 +69,15 @@ export class RetentionService {
     }
 
     return {
-      organisationId: orgId,
-      retentionDays,
+      organisationId: orgId || 'all',
       purgedCount,
+      minRetentionDays: MIN_RETENTION_DAYS,
     };
+  }
+
+  /** @deprecated Prefer purgeExpiredFiles — kept for admin route compatibility */
+  public async purgeExpiredDocuments(orgId: string) {
+    return this.purgeExpiredFiles(orgId);
   }
 
   public async eraseDataSubject(orgId: string, email: string) {

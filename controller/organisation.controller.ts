@@ -69,6 +69,33 @@ export class OrganisationController {
     }
   };
 
+  public getBilling = async (request: FastifyRequest, reply: FastifyReply) => {
+    const { organisationId } = request.params as { organisationId: string };
+    const sessionUser = (request as any).user;
+
+    try {
+      await assertUserInOrganisation(sessionUser.userId, organisationId);
+      const billingService = (await import('../service/billing.service')).default;
+      const billing = await billingService.getBillingSummary(organisationId);
+      return responseUtil.success(
+        reply,
+        'Billing summary retrieved successfully',
+        billing
+      );
+    } catch (error: any) {
+      const status = error.message?.includes('access')
+        ? 403
+        : error.message === 'Organisation not found'
+          ? 404
+          : 500;
+      return responseUtil.error(
+        reply,
+        error.message || 'Failed to retrieve billing',
+        status
+      );
+    }
+  };
+
   public getStats = async (request: FastifyRequest, reply: FastifyReply) => {
     const { organisationId } = request.params as { organisationId: string };
     const sessionUser = (request as any).user;

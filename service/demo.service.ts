@@ -141,12 +141,16 @@ export class DemoService {
         slug: DEMO_ORG_SLUG,
         memberCount: 1,
         isDemo: true,
+        planDetails: { planId: 'growth' },
         createdBy: user.userId,
       });
     } else {
       org.name = DEMO_ORG_NAME;
       org.slug = DEMO_ORG_SLUG;
       (org as { isDemo?: boolean }).isDemo = true;
+      if (!(org.planDetails as { planId?: string } | undefined)?.planId) {
+        org.planDetails = { planId: 'growth' };
+      }
       await org.save();
     }
 

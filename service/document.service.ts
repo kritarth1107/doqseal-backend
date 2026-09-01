@@ -24,6 +24,10 @@ import {
   decryptBuffer,
   encryptBuffer,
 } from '../utils/envelope-encryption.util';
+import {
+  DEFAULT_RETENTION_DAYS,
+  MIN_RETENTION_DAYS,
+} from '../constants/plans';
 
 const ALLOWED_MIME_TYPES = new Set([
   'application/pdf',
@@ -78,9 +82,33 @@ function toListItem(doc: any) {
     uploadedBy: doc.uploadedBy,
     sharedWithOrganisation: doc.sharedWithOrganisation !== false,
     filePurgedAt: doc.filePurgedAt || null,
+    retentionDays: doc.retentionDays ?? null,
+    keepForever: Boolean(doc.keepForever),
+    fileExpiresAt: doc.fileExpiresAt || null,
     createdAt: doc.createdAt,
     updatedAt: doc.updatedAt,
   };
+}
+
+function resolveRetention(params: {
+  retentionDays?: number | null;
+  keepForever?: boolean;
+}): { retentionDays: number | null; keepForever: boolean; fileExpiresAt: Date | null } {
+  if (params.keepForever) {
+    return { retentionDays: null, keepForever: true, fileExpiresAt: null };
+  }
+  let days =
+    typeof params.retentionDays === 'number' && !Number.isNaN(params.retentionDays)
+      ? Math.floor(params.retentionDays)
+      : DEFAULT_RETENTION_DAYS;
+  if (days < MIN_RETENTION_DAYS) {
+    throw new Error(
+      `File retention must be at least ${MIN_RETENTION_DAYS} days (or keep forever)`
+    );
+  }
+  const fileExpiresAt = new Date();
+  fileExpiresAt.setUTCDate(fileExpiresAt.getUTCDate() + days);
+  return { retentionDays: days, keepForever: false, fileExpiresAt };
 }
 
 export class DocumentService {
@@ -93,6 +121,8 @@ export class DocumentService {
     buffer: Buffer;
     consentGivenAt?: Date | null;
     sharedWithOrganisation?: boolean;
+    retentionDays?: number | null;
+    keepForever?: boolean;
   }) {
     const {
       userId,
@@ -101,6 +131,10 @@ export class DocumentService {
       buffer,
       consentGivenAt,
     } = params;
+    const retention = resolveRetention({
+      retentionDays: params.retentionDays,
+      keepForever: params.keepForever,
+    });
     let mimeType = params.mimeType;
 
     const projectId =
@@ -212,6 +246,9 @@ export class DocumentService {
       uploadedBy: userId,
       sharedWithOrganisation,
       consentGivenAt: consentGivenAt ?? null,
+      retentionDays: retention.retentionDays,
+      keepForever: retention.keepForever,
+      fileExpiresAt: retention.fileExpiresAt,
     });
 
     await quotaService.incrementUploadCount(organisationId);
@@ -230,6 +267,9 @@ export class DocumentService {
         sharedWithOrganisation,
         consentGivenAt: consentGivenAt ?? null,
         storageProvider: stored.storageProvider,
+        retentionDays: retention.retentionDays,
+        keepForever: retention.keepForever,
+        fileExpiresAt: retention.fileExpiresAt,
       },
     });
 
@@ -359,6 +399,9 @@ export class DocumentService {
         uploadedBy: document.uploadedBy,
         sharedWithOrganisation: document.sharedWithOrganisation !== false,
         filePurgedAt: document.filePurgedAt || null,
+        retentionDays: document.retentionDays ?? null,
+        keepForever: Boolean(document.keepForever),
+        fileExpiresAt: document.fileExpiresAt || null,
         createdAt: document.createdAt,
         updatedAt: document.updatedAt,
       },
@@ -525,7 +568,8 @@ export class DocumentService {
   public async reprocessDocument(
     userId: string,
     organisationId: string,
-    documentId: string
+    documentId: string,
+    options: { userContext?: string | null } = {}
   ) {
     await assertUserInOrganisation(userId, organisationId);
 
@@ -546,10 +590,16 @@ export class DocumentService {
       );
     }
 
+    const userContext =
+      typeof options.userContext === 'string'
+        ? options.userContext.trim().slice(0, 4000)
+        : '';
+
     const job = await jobService.createJob({
       documentId,
       organisationId,
       projectId: document.projectId || null,
+      userContext: userContext || null,
     });
 
     await auditService.logEvent({
@@ -561,6 +611,7 @@ export class DocumentService {
       metadata: {
         projectId: document.projectId,
         jobId: job.jobId,
+        hasUserContext: Boolean(userContext),
       },
     });
 

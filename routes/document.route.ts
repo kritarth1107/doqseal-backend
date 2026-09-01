@@ -85,6 +85,20 @@ export const documentRouter: FastifyPluginAsync = async (
     documentController.reprocess
   );
 
+  fastify.patch(
+    '/:documentId/extraction',
+    {
+      schema: {
+        tags: ['Documents'],
+        summary: 'Correct extracted fields (saved for model tuning)',
+        security: bearerSecurity,
+        params: DocumentIdParams,
+        response: { 200: ApiSuccessSchema, ...errorResponses },
+      },
+    },
+    documentController.updateExtraction
+  );
+
   fastify.get(
     '/:documentId',
     {

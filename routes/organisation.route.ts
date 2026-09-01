@@ -29,6 +29,20 @@ export const organisationRouter: FastifyPluginAsync = async (
   );
 
   fastify.get(
+    '/:organisationId/billing',
+    {
+      schema: {
+        tags: ['Organisations'],
+        summary: 'Get billing summary (plan, payment, invoices)',
+        security: bearerSecurity,
+        params: OrganisationIdParams,
+        response: { 200: ApiSuccessSchema, ...errorResponses },
+      },
+    },
+    organisationController.getBilling.bind(organisationController)
+  );
+
+  fastify.get(
     '/:organisationId/stats',
     {
       schema: {

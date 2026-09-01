@@ -81,7 +81,7 @@ export class MembershipService {
       status: 'pending',
     });
 
-    const acceptUrl = `${config.server.liveFrontendUrl}/invites/${token}/accept`;
+    const acceptUrl = `${config.server.liveFrontendUrl}/invite/${token}`;
 
     await EmailUtil.sendEmail({
       to: normalizedEmail,

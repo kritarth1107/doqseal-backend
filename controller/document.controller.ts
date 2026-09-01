@@ -15,6 +15,8 @@ export class DocumentController {
       let mimeType = '';
       let consentGivenAt: Date | null = null;
       let sharedWithOrganisation: boolean | undefined;
+      let retentionDays: number | undefined;
+      let keepForever = false;
 
       const parts = request.parts();
       for await (const part of parts) {
@@ -28,6 +30,12 @@ export class DocumentController {
         } else if (part.fieldname === 'sharedWithOrganisation') {
           const raw = String(part.value).trim().toLowerCase();
           sharedWithOrganisation = raw === 'true' || raw === '1';
+        } else if (part.fieldname === 'keepForever') {
+          const raw = String(part.value).trim().toLowerCase();
+          keepForever = raw === 'true' || raw === '1';
+        } else if (part.fieldname === 'retentionDays') {
+          const parsed = Number(part.value);
+          if (!Number.isNaN(parsed)) retentionDays = parsed;
         } else if (part.fieldname === 'consent' || part.fieldname === 'consentGivenAt') {
           const rawValue = String(part.value).trim();
           if (rawValue === 'true' || rawValue === '1') {
@@ -54,6 +62,8 @@ export class DocumentController {
         buffer: fileBuffer,
         consentGivenAt,
         sharedWithOrganisation,
+        retentionDays,
+        keepForever,
       });
 
       return responseUtil.success(
@@ -208,13 +218,15 @@ export class DocumentController {
   public async reprocess(request: FastifyRequest, reply: FastifyReply) {
     const sessionUser = (request as any).user;
     const { documentId } = request.params as { documentId: string };
+    const body = (request.body || {}) as { userContext?: string };
 
     try {
       const organisationId = resolveOrganisationId(request);
       const result = await documentService.reprocessDocument(
         sessionUser.userId,
         organisationId,
-        documentId
+        documentId,
+        { userContext: body.userContext }
       );
 
       return responseUtil.success(
@@ -228,7 +240,47 @@ export class DocumentController {
         ? 429
         : message === 'Document not found'
           ? 404
-          : 500;
+          : /removed from storage|Original file/i.test(message)
+            ? 400
+            : 500;
+      return responseUtil.error(reply, message, status);
+    }
+  }
+
+  public async updateExtraction(request: FastifyRequest, reply: FastifyReply) {
+    const sessionUser = (request as any).user;
+    const { documentId } = request.params as { documentId: string };
+    const body = (request.body || {}) as {
+      fields?: Record<string, unknown>;
+      note?: string;
+    };
+
+    try {
+      const organisationId = resolveOrganisationId(request);
+      const extractionService = (
+        await import('../service/extraction.service')
+      ).default;
+      const result = await extractionService.updateExtractionFields({
+        userId: sessionUser.userId,
+        organisationId,
+        documentId,
+        fields: body.fields || {},
+        note: body.note,
+      });
+
+      return responseUtil.success(
+        reply,
+        'Extraction fields updated',
+        result
+      );
+    } catch (error: any) {
+      const message = error.message || 'Failed to update extraction';
+      const status =
+        message === 'Document not found' || message.includes('No extraction')
+          ? 404
+          : message.includes('required')
+            ? 400
+            : 500;
       return responseUtil.error(reply, message, status);
     }
   }

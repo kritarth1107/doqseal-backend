@@ -141,6 +141,7 @@ export class UserService {
       isDomainVerified: false,
       autoJoinDomain: false,
       memberCount: 1,
+      planDetails: { planId: 'free' },
       createdBy: userId
     });
 

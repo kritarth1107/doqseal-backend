@@ -18,6 +18,8 @@ export interface IExtractionJob extends Document {
   /** When true, worker/AI is skipped; extraction is canned after demoRevealAt */
   demoMode?: boolean;
   demoRevealAt?: Date | null;
+  /** Optional extra context supplied when re-running extraction */
+  userContext?: string | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -70,6 +72,10 @@ const ExtractionJobSchema: Schema = new Schema(
     },
     demoRevealAt: {
       type: Date,
+      default: null,
+    },
+    userContext: {
+      type: String,
       default: null,
     },
   },

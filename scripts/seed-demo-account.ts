@@ -65,6 +65,7 @@ async function seed() {
       slug: DEMO_ORG_SLUG,
       memberCount: 1,
       isDemo: true,
+      planDetails: { planId: 'growth' },
       createdBy: userId,
     });
 
