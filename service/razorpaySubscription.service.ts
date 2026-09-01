@@ -412,12 +412,29 @@ export class RazorpaySubscriptionService {
     const subscriptionId = `sub_${uuidv4().replace(/-/g, '').slice(0, 20)}`;
     const returnUrl = `${config.server.liveFrontendUrl.replace(/\/$/, '')}/settings/billing?checkout=done&subscription_id=${subscriptionId}`;
 
-    const customer = await razorpayClient.createCustomer({
+    const storedBilling = (org.planDetails as { billing?: Record<string, unknown> } | undefined)
+      ?.billing;
+    const existingRazorpayCustomerId =
+      typeof storedBilling?.razorpayCustomerId === 'string'
+        ? storedBilling.razorpayCustomerId
+        : null;
+
+    const customer = await razorpayClient.findOrCreateCustomer({
       name: user.name,
       email: user.email,
       contact: phone.length === 10 ? phone : undefined,
       organisationId,
+      existingCustomerId: existingRazorpayCustomerId,
     });
+
+    await Organisation.updateOne(
+      { publicId: organisationId },
+      {
+        $set: {
+          'planDetails.billing.razorpayCustomerId': customer.id,
+        },
+      }
+    );
 
     const razorpayPlan = await razorpayClient.createPlan({
       name: `DoqSeal ${plan.name} (${intervalLabel})`,

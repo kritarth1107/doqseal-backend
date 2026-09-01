@@ -147,13 +147,97 @@ export class RazorpayClient {
   }) {
     const body: Record<string, unknown> = {
       name: params.name,
-      email: params.email,
+      email: params.email.trim().toLowerCase(),
       notes: { organisation_id: params.organisationId },
     };
     if (params.contact) {
       body.contact = params.contact;
     }
     return request<{ id: string }>('POST', '/customers', body);
+  }
+
+  public async getCustomer(customerId: string): Promise<{ id: string; email?: string }> {
+    return request<{ id: string; email?: string }>(
+      'GET',
+      `/customers/${encodeURIComponent(customerId)}`
+    );
+  }
+
+  public async findCustomerByEmail(email: string): Promise<{ id: string } | null> {
+    const normalized = email.trim().toLowerCase();
+    if (!normalized) return null;
+
+    const data = await request<{ items: { id: string; email?: string }[] }>(
+      'GET',
+      `/customers?email=${encodeURIComponent(normalized)}&count=20`
+    );
+
+    const items = data.items || [];
+    const exact = items.find(
+      (c) => String(c.email || '').trim().toLowerCase() === normalized
+    );
+    if (exact) return { id: exact.id };
+    if (items[0]?.id) return { id: items[0].id };
+    return null;
+  }
+
+  public async updateCustomer(
+    customerId: string,
+    params: { name?: string; contact?: string }
+  ) {
+    const body: Record<string, unknown> = {};
+    if (params.name) body.name = params.name;
+    if (params.contact) body.contact = params.contact;
+    if (!Object.keys(body).length) return { id: customerId };
+    return request<{ id: string }>(
+      'PUT',
+      `/customers/${encodeURIComponent(customerId)}`,
+      body
+    );
+  }
+
+  /** Reuse Razorpay customer by email / stored id — avoids duplicate-customer errors. */
+  public async findOrCreateCustomer(params: {
+    name: string;
+    email: string;
+    contact?: string;
+    organisationId: string;
+    existingCustomerId?: string | null;
+  }): Promise<{ id: string }> {
+    if (params.existingCustomerId) {
+      try {
+        const stored = await this.getCustomer(params.existingCustomerId);
+        if (stored?.id) {
+          await this.updateCustomer(stored.id, {
+            name: params.name,
+            contact: params.contact,
+          }).catch(() => undefined);
+          return { id: stored.id };
+        }
+      } catch {
+        // stored id invalid — fall through
+      }
+    }
+
+    const byEmail = await this.findCustomerByEmail(params.email);
+    if (byEmail) {
+      await this.updateCustomer(byEmail.id, {
+        name: params.name,
+        contact: params.contact,
+      }).catch(() => undefined);
+      return byEmail;
+    }
+
+    try {
+      return await this.createCustomer(params);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (/already exists/i.test(message)) {
+        const fallback = await this.findCustomerByEmail(params.email);
+        if (fallback) return fallback;
+      }
+      throw err;
+    }
   }
 
   public async createSubscription(params: {
