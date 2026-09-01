@@ -11,6 +11,7 @@ import razorpayClient from '../utils/razorpay.client';
 import config from '../config/app.config';
 import { assertOrgRole, assertUserInOrganisation } from '../utils/org-access.util';
 import auditService from './audit.service';
+import { isRazorpayAuditOnlyEvent } from '../constants/razorpay.webhook.events';
 
 const PAID_PLAN_IDS = new Set(['starter', 'growth', 'scale']);
 
@@ -23,6 +24,8 @@ function normalizeStatus(raw?: string | null): SubscriptionStatus {
       return 'bank_approval_pending';
     case 'pending':
       return 'bank_approval_pending';
+    case 'created':
+      return 'initialized';
     case 'halted':
       return 'on_hold';
     case 'paused':
@@ -33,6 +36,8 @@ function normalizeStatus(raw?: string | null): SubscriptionStatus {
       return 'completed';
     case 'expired':
       return 'expired';
+    case 'failed':
+      return 'failed';
     default:
       return 'initialized';
   }
@@ -74,28 +79,127 @@ function nextMonthDate(): Date {
   return d;
 }
 
+function entityFromPayload(
+  payload: Record<string, any>,
+  key: string
+): Record<string, any> | null {
+  const block = payload.payload?.[key];
+  if (!block) return null;
+  if (block.entity && typeof block.entity === 'object') return block.entity;
+  if (typeof block === 'object') return block as Record<string, any>;
+  return null;
+}
+
+function extractProviderSubscriptionId(payload: Record<string, any>): string {
+  const subscription = entityFromPayload(payload, 'subscription');
+  const payment = entityFromPayload(payload, 'payment');
+  const invoice = entityFromPayload(payload, 'invoice');
+  const refund = entityFromPayload(payload, 'refund');
+
+  const candidates = [
+    subscription?.id,
+    payment?.subscription_id,
+    invoice?.subscription_id,
+    refund?.subscription_id,
+  ];
+
+  for (const c of candidates) {
+    if (c) return String(c);
+  }
+  return '';
+}
+
+function amountInrFromEntities(
+  payment?: Record<string, any> | null,
+  invoice?: Record<string, any> | null,
+  subscription?: Record<string, any> | null
+): number | null {
+  const paise =
+    Number(payment?.amount) ||
+    Number(invoice?.amount) ||
+    Number(invoice?.amount_paid) ||
+    Number(subscription?.plan_amount) ||
+    0;
+  if (!paise) return null;
+  return paise / 100;
+}
+
+/**
+ * Map Razorpay webhook event → subscription status.
+ * Returns null when the event should not change subscription status.
+ */
 function inferStatusFromEvent(
   event: string,
   subscription?: Record<string, any> | null,
-  payment?: Record<string, any> | null
+  payment?: Record<string, any> | null,
+  invoice?: Record<string, any> | null
 ): SubscriptionStatus | null {
   const e = event.toLowerCase();
-  if (e === 'subscription.activated' || e === 'subscription.charged') {
-    return 'active';
+
+  // ── Subscription lifecycle ─────────────────────────────
+  switch (e) {
+    case 'subscription.authenticated':
+      return 'bank_approval_pending';
+    case 'subscription.activated':
+      return 'active';
+    case 'subscription.charged':
+      return 'active';
+    case 'subscription.resumed':
+      return 'active';
+    case 'subscription.pending':
+      return 'bank_approval_pending';
+    case 'subscription.halted':
+      return 'on_hold';
+    case 'subscription.paused':
+      return 'paused';
+    case 'subscription.cancelled':
+      return 'cancelled';
+    case 'subscription.completed':
+      return 'completed';
+    case 'subscription.updated':
+      return subscription?.status
+        ? normalizeStatus(subscription.status)
+        : null;
   }
-  if (e === 'subscription.authenticated' || e === 'subscription.pending') {
-    return 'bank_approval_pending';
+
+  // ── Payment lifecycle ──────────────────────────────────
+  switch (e) {
+    case 'payment.authorized':
+      return 'bank_approval_pending';
+    case 'payment.captured':
+      return 'active';
+    case 'payment.failed':
+      return 'failed';
   }
-  if (e === 'subscription.halted' || e === 'payment.failed') {
-    return payment?.status === 'failed' ? 'failed' : 'on_hold';
+
+  // ── Invoice lifecycle ──────────────────────────────────
+  switch (e) {
+    case 'invoice.paid':
+      return 'active';
+    case 'invoice.partially_paid':
+      return 'bank_approval_pending';
+    case 'invoice.expired':
+      return 'on_hold';
   }
-  if (e === 'subscription.cancelled') return 'cancelled';
-  if (e === 'subscription.completed') return 'completed';
-  if (e === 'subscription.paused') return 'paused';
-  if (e === 'subscription.resumed') return 'active';
-  if (e === 'invoice.paid') return 'active';
+
   if (subscription?.status) return normalizeStatus(subscription.status);
+  if (payment?.status === 'failed') return 'failed';
+  if (invoice?.status === 'paid') return 'active';
+
   return null;
+}
+
+function shouldRecordPaidInvoice(event: string): boolean {
+  const e = event.toLowerCase();
+  return (
+    e === 'subscription.charged' ||
+    e === 'payment.captured' ||
+    e === 'invoice.paid'
+  );
+}
+
+function shouldRecordFailedInvoice(event: string): boolean {
+  return event.toLowerCase() === 'payment.failed';
 }
 
 export class RazorpaySubscriptionService {
@@ -239,6 +343,35 @@ export class RazorpaySubscriptionService {
     };
   }
 
+  public async recordInvoice(
+    organisationId: string,
+    subscriptionId: string,
+    planId: string,
+    paymentId: string,
+    amountInr: number,
+    status: 'paid' | 'failed',
+    description: string
+  ) {
+    const invoiceId = `inv_${paymentId}`;
+    await BillingInvoice.findOneAndUpdate(
+      { organisationId, cashfreePaymentId: paymentId },
+      {
+        $set: {
+          invoiceId,
+          organisationId,
+          subscriptionId,
+          planId,
+          date: new Date().toISOString().slice(0, 10),
+          totalInr: amountInr,
+          status,
+          description,
+          cashfreePaymentId: paymentId,
+        },
+      },
+      { upsert: true }
+    );
+  }
+
   public async applySubscriptionState(params: {
     providerSubscriptionId: string;
     status: SubscriptionStatus;
@@ -246,6 +379,9 @@ export class RazorpaySubscriptionService {
     paymentMethod?: SavedPaymentMethod | null;
     amountInr?: number | null;
     paymentId?: string | null;
+    recordInvoice?: boolean;
+    invoiceStatus?: 'paid' | 'failed';
+    invoiceDescription?: string;
   }) {
     const sub = await OrganisationSubscription.findOne({
       cashfreeSubscriptionId: params.providerSubscriptionId,
@@ -256,9 +392,9 @@ export class RazorpaySubscriptionService {
       return null;
     }
 
+    const paymentEntity = params.raw?.payment as Record<string, any> | undefined;
     const method =
-      params.paymentMethod ||
-      (params.raw?.payment ? mapPaymentMethodFromPayment(params.raw.payment) : null);
+      params.paymentMethod || mapPaymentMethodFromPayment(paymentEntity);
 
     sub.status = params.status;
     if (method) sub.paymentMethod = method;
@@ -283,42 +419,71 @@ export class RazorpaySubscriptionService {
         }
       );
 
-      if (params.status === 'active' && params.amountInr && params.amountInr > 0) {
-        const invoiceId = `inv_${params.paymentId || Date.now()}`;
-        await BillingInvoice.findOneAndUpdate(
-          {
-            organisationId: sub.organisationId,
-            cashfreePaymentId: params.paymentId || invoiceId,
-          },
-          {
-            $setOnInsert: {
-              invoiceId,
-              organisationId: sub.organisationId,
-              subscriptionId: sub.subscriptionId,
-              planId: sub.planId,
-              date: new Date().toISOString().slice(0, 10),
-              totalInr: params.amountInr,
-              status: 'paid',
-              description: `${sub.planId} subscription`,
-              cashfreePaymentId: params.paymentId || invoiceId,
-            },
-          },
-          { upsert: true }
+      if (
+        params.recordInvoice &&
+        params.amountInr &&
+        params.amountInr > 0 &&
+        params.paymentId
+      ) {
+        await this.recordInvoice(
+          sub.organisationId,
+          sub.subscriptionId,
+          sub.planId,
+          params.paymentId,
+          params.amountInr,
+          params.invoiceStatus || 'paid',
+          params.invoiceDescription || `${sub.planId} subscription`
         );
       }
     }
 
     if (
       params.status === 'cancelled' ||
+      params.status === 'completed' ||
       params.status === 'expired' ||
       params.status === 'failed'
     ) {
       if (params.status === 'cancelled') sub.cancelledAt = new Date();
+
+      const downgrade =
+        params.status === 'cancelled' ||
+        params.status === 'completed' ||
+        params.status === 'failed';
+
       await Organisation.updateOne(
         { publicId: sub.organisationId },
         {
           $set: {
-            'planDetails.planId': 'free',
+            ...(downgrade ? { 'planDetails.planId': 'free' } : {}),
+            'planDetails.billing.status': params.status,
+            'planDetails.billing.updatedAt': new Date().toISOString(),
+          },
+        }
+      );
+
+      if (
+        params.recordInvoice &&
+        params.paymentId &&
+        params.amountInr &&
+        params.invoiceStatus === 'failed'
+      ) {
+        await this.recordInvoice(
+          sub.organisationId,
+          sub.subscriptionId,
+          sub.planId,
+          params.paymentId,
+          params.amountInr,
+          'failed',
+          params.invoiceDescription || 'Payment failed'
+        );
+      }
+    }
+
+    if (params.status === 'on_hold' || params.status === 'paused') {
+      await Organisation.updateOne(
+        { publicId: sub.organisationId },
+        {
+          $set: {
             'planDetails.billing.status': params.status,
             'planDetails.billing.updatedAt': new Date().toISOString(),
           },
@@ -331,42 +496,134 @@ export class RazorpaySubscriptionService {
   }
 
   public async handleWebhook(payload: Record<string, any>) {
-    const event = String(payload.event || '').trim();
-    const subscriptionEntity =
-      payload.payload?.subscription?.entity ||
-      payload.payload?.subscription ||
-      null;
-    const paymentEntity =
-      payload.payload?.payment?.entity || payload.payload?.payment || null;
+    const event = String(payload.event || '').trim().toLowerCase();
+    if (!event) {
+      return { handled: false, action: 'ignored', reason: 'missing_event' };
+    }
 
-    const providerSubscriptionId = String(
-      subscriptionEntity?.id || paymentEntity?.subscription_id || ''
-    );
+    const subscriptionEntity = entityFromPayload(payload, 'subscription');
+    const paymentEntity = entityFromPayload(payload, 'payment');
+    const invoiceEntity = entityFromPayload(payload, 'invoice');
+    const refundEntity = entityFromPayload(payload, 'refund');
+
+    const providerSubscriptionId = extractProviderSubscriptionId(payload);
+
+    // Audit-only: disputes, downtime, refunds (no subscription state change)
+    if (isRazorpayAuditOnlyEvent(event)) {
+      const orgId =
+        providerSubscriptionId
+          ? (
+              await OrganisationSubscription.findOne({
+                cashfreeSubscriptionId: providerSubscriptionId,
+                paymentProvider: 'razorpay',
+              }).lean()
+            )?.organisationId
+          : null;
+
+      if (orgId) {
+        await auditService.logEvent({
+          actorId: 'system:razorpay',
+          organisationId: orgId,
+          action: `razorpay.${event.replace(/\./g, '_')}`,
+          resourceType: 'payment',
+          resourceId: String(
+            paymentEntity?.id || refundEntity?.id || providerSubscriptionId
+          ),
+          metadata: {
+            event,
+            paymentId: paymentEntity?.id,
+            refundId: refundEntity?.id,
+            subscriptionId: providerSubscriptionId,
+          },
+        });
+      }
+
+      return {
+        handled: true,
+        action: 'audit_logged',
+        event,
+        providerSubscriptionId: providerSubscriptionId || null,
+      };
+    }
 
     if (!providerSubscriptionId) {
       console.info('[razorpay] webhook without subscription id', event);
-      return { handled: false, action: 'ignored', event };
+      return { handled: true, action: 'ignored', event, reason: 'no_subscription' };
     }
 
-    const amountInr =
-      Number(paymentEntity?.amount || subscriptionEntity?.plan_amount || 0) / 100 || null;
-    const paymentId = paymentEntity?.id ? String(paymentEntity.id) : null;
+    const amountInr = amountInrFromEntities(
+      paymentEntity,
+      invoiceEntity,
+      subscriptionEntity
+    );
+    const paymentId = paymentEntity?.id
+      ? String(paymentEntity.id)
+      : invoiceEntity?.payment_id
+        ? String(invoiceEntity.payment_id)
+        : invoiceEntity?.id
+          ? String(invoiceEntity.id)
+          : null;
     const paymentMethod = mapPaymentMethodFromPayment(paymentEntity);
 
     const status =
-      inferStatusFromEvent(event, subscriptionEntity, paymentEntity) ||
-      normalizeStatus(subscriptionEntity?.status);
+      inferStatusFromEvent(
+        event,
+        subscriptionEntity,
+        paymentEntity,
+        invoiceEntity
+      ) || normalizeStatus(subscriptionEntity?.status);
+
+    const recordPaid =
+      shouldRecordPaidInvoice(event) && paymentId && amountInr;
+    const recordFailed =
+      shouldRecordFailedInvoice(event) && paymentId && amountInr;
 
     await this.applySubscriptionState({
       providerSubscriptionId,
       status,
-      raw: { subscription: subscriptionEntity, payment: paymentEntity },
+      raw: {
+        subscription: subscriptionEntity,
+        payment: paymentEntity,
+        invoice: invoiceEntity,
+      },
       paymentMethod,
       amountInr,
       paymentId,
+      recordInvoice: Boolean(recordPaid || recordFailed),
+      invoiceStatus: recordFailed ? 'failed' : 'paid',
+      invoiceDescription: recordFailed
+        ? `Failed: ${event}`
+        : `${event} — subscription`,
     });
 
-    return { handled: true, providerSubscriptionId, status, event };
+    const sub = await OrganisationSubscription.findOne({
+      cashfreeSubscriptionId: providerSubscriptionId,
+    }).lean();
+
+    if (sub) {
+      await auditService.logEvent({
+        actorId: 'system:razorpay',
+        organisationId: sub.organisationId,
+        action: `razorpay.webhook.${event.replace(/\./g, '_')}`,
+        resourceType: 'subscription',
+        resourceId: sub.subscriptionId,
+        metadata: {
+          event,
+          status,
+          paymentId,
+          amountInr,
+          razorpaySubscriptionId: providerSubscriptionId,
+        },
+      });
+    }
+
+    return {
+      handled: true,
+      action: 'subscription_updated',
+      providerSubscriptionId,
+      status,
+      event,
+    };
   }
 }
 
