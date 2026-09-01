@@ -39,7 +39,7 @@ export class BillingController {
         userId: sessionUser.userId,
         organisationId,
         planId: body.planId,
-        customerPhone: body.customerPhone || '',
+        customerPhone: body.customerPhone?.trim() || undefined,
       };
 
       const result =

@@ -32,7 +32,7 @@ export interface IOrganisationSubscription extends Document {
   status: SubscriptionStatus;
   amountInr: number;
   currency: string;
-  customerPhone: string;
+  customerPhone?: string | null;
   paymentMethod?: SavedPaymentMethod | null;
   currentPeriodEnd?: Date | null;
   nextChargeAt?: Date | null;
@@ -125,7 +125,7 @@ const OrganisationSubscriptionSchema: Schema = new Schema(
     },
     customerPhone: {
       type: String,
-      required: true,
+      default: null,
     },
     paymentMethod: {
       type: PaymentMethodSchema,

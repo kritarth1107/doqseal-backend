@@ -212,7 +212,7 @@ export class CashfreeSubscriptionService {
     userId: string;
     organisationId: string;
     planId: string;
-    customerPhone: string;
+    customerPhone?: string;
   }) {
     const { userId, organisationId, planId } = params;
     await assertUserInOrganisation(userId, organisationId);

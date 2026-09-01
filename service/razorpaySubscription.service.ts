@@ -96,6 +96,39 @@ function mapPaymentMethodFromPayment(
     : null;
 }
 
+function extractCustomerPhone(
+  payment: Record<string, any> | null | undefined
+): string | null {
+  if (!payment) return null;
+  const raw =
+    payment.contact ||
+    payment.customer_details?.contact ||
+    payment.customer_details?.customer_phone;
+  const phone = String(raw || '')
+    .replace(/\D/g, '')
+    .slice(-10);
+  return phone.length === 10 ? phone : null;
+}
+
+async function resolveCustomerPhone(params: {
+  paymentEntity?: Record<string, any> | null;
+  paymentId?: string | null;
+}): Promise<string | null> {
+  const fromEntity = extractCustomerPhone(params.paymentEntity);
+  if (fromEntity) return fromEntity;
+
+  if (params.paymentId) {
+    try {
+      const remote = await razorpayClient.getPayment(params.paymentId);
+      return extractCustomerPhone(remote as Record<string, any>);
+    } catch (err) {
+      console.warn('[razorpay] getPayment for contact failed', params.paymentId, err);
+    }
+  }
+
+  return null;
+}
+
 function paymentMethodKey(method: SavedPaymentMethod): string {
   return [
     method.type,
@@ -317,7 +350,7 @@ export class RazorpaySubscriptionService {
     userId: string;
     organisationId: string;
     planId: string;
-    customerPhone: string;
+    customerPhone?: string;
   }) {
     const { userId, organisationId, planId } = params;
     await assertUserInOrganisation(userId, organisationId);
@@ -376,7 +409,7 @@ export class RazorpaySubscriptionService {
       },
     });
 
-    await OrganisationSubscription.create({
+    const subscriptionPayload: Record<string, unknown> = {
       subscriptionId,
       organisationId,
       userId,
@@ -387,13 +420,17 @@ export class RazorpaySubscriptionService {
       status: normalizeStatus(created.status),
       amountInr: plan.priceInrMonthly,
       currency: 'INR',
-      customerPhone: phone.length === 10 ? phone : '',
       metadata: {
         returnUrl,
         razorpayPlanId: razorpayPlan.id,
         razorpayCustomerId: customer.id,
       },
-    });
+    };
+    if (phone.length === 10) {
+      subscriptionPayload.customerPhone = phone;
+    }
+
+    await OrganisationSubscription.create(subscriptionPayload);
 
     await auditService.logEvent({
       actorId: userId,
@@ -491,6 +528,7 @@ export class RazorpaySubscriptionService {
     status: SubscriptionStatus;
     raw?: Record<string, any>;
     paymentMethod?: SavedPaymentMethod | null;
+    customerPhone?: string | null;
     amountInr?: number | null;
     paymentId?: string | null;
     recordInvoice?: boolean;
@@ -513,6 +551,12 @@ export class RazorpaySubscriptionService {
 
     sub.status = params.status;
     if (method) sub.paymentMethod = method;
+
+    const phone =
+      params.customerPhone ||
+      extractCustomerPhone(paymentEntity) ||
+      null;
+    if (phone) sub.customerPhone = phone;
 
     if (method) {
       await persistPaymentMethodsOnOrg(sub.organisationId, method, params.status);
@@ -691,6 +735,10 @@ export class RazorpaySubscriptionService {
       paymentId,
       providerSubscriptionId,
     });
+    const customerPhone = await resolveCustomerPhone({
+      paymentEntity,
+      paymentId,
+    });
 
     const status =
       inferStatusFromEvent(
@@ -714,6 +762,7 @@ export class RazorpaySubscriptionService {
         invoice: invoiceEntity,
       },
       paymentMethod,
+      customerPhone,
       amountInr,
       paymentId,
       recordInvoice: Boolean(recordPaid || recordFailed),
