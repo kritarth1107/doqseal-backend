@@ -32,6 +32,7 @@ export interface IOrganisationSubscription extends Document {
   status: SubscriptionStatus;
   amountInr: number;
   currency: string;
+  billingInterval?: 'monthly' | 'yearly';
   customerPhone?: string | null;
   paymentMethod?: SavedPaymentMethod | null;
   currentPeriodEnd?: Date | null;
@@ -122,6 +123,12 @@ const OrganisationSubscriptionSchema: Schema = new Schema(
     currency: {
       type: String,
       default: 'INR',
+    },
+    billingInterval: {
+      type: String,
+      enum: ['monthly', 'yearly'],
+      default: 'monthly',
+      index: true,
     },
     customerPhone: {
       type: String,

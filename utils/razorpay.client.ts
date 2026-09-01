@@ -7,6 +7,8 @@ export type RazorpayPlan = {
   item: { name: string; amount: number; currency: string };
 };
 
+export type BillingInterval = 'monthly' | 'yearly';
+
 export type RazorpaySubscription = {
   id: string;
   plan_id: string;
@@ -119,16 +121,21 @@ export class RazorpayClient {
     name: string;
     amountInr: number;
     planId: string;
+    interval?: BillingInterval;
   }): Promise<RazorpayPlan> {
+    const interval = params.interval ?? 'monthly';
     return request<RazorpayPlan>('POST', '/plans', {
-      period: 'monthly',
+      period: interval === 'yearly' ? 'yearly' : 'monthly',
       interval: 1,
       item: {
         name: params.name.slice(0, 250),
         amount: Math.round(params.amountInr * 100),
         currency: 'INR',
       },
-      notes: { doqseal_plan_id: params.planId },
+      notes: {
+        doqseal_plan_id: params.planId,
+        billing_interval: interval,
+      },
     });
   }
 
@@ -154,12 +161,16 @@ export class RazorpayClient {
     customerId?: string;
     totalCount?: number;
     notes: Record<string, string>;
+    billingInterval?: BillingInterval;
   }): Promise<RazorpaySubscription> {
+    const billingInterval = params.billingInterval ?? 'monthly';
     return request<RazorpaySubscription>('POST', '/subscriptions', {
       plan_id: params.planId,
       customer_id: params.customerId,
       customer_notify: 1,
-      total_count: params.totalCount ?? 120,
+      total_count:
+        params.totalCount ??
+        (billingInterval === 'yearly' ? 10 : 120),
       notes: params.notes,
     });
   }

@@ -10,7 +10,7 @@ import {
   isCheckoutAvailable,
   resolveBillingProvider,
 } from '../utils/billingProvider.util';
-import { STORAGE_DAY_RATE_INR } from '../constants/plans';
+import { STORAGE_DAY_RATE_INR, YEARLY_SUBSCRIPTION_DISCOUNT_PERCENT } from '../constants/plans';
 
 export type PaymentMethod = {
   type?: string;
@@ -123,15 +123,19 @@ export class BillingService {
         tagline: currentCatalog?.tagline ?? '',
         renewsAt,
         subscriptionStatus: activeSub?.status || null,
+        billingInterval: activeSub?.billingInterval || 'monthly',
       },
       usage,
       paymentMethod,
       paymentMethods,
       invoices,
+      yearlyDiscountPercent: YEARLY_SUBSCRIPTION_DISCOUNT_PERCENT,
       plans: catalogPlans.map((p) => ({
         id: p.id,
         name: p.name,
         priceInrMonthly: p.priceInrMonthly,
+        priceInrYearly: p.priceInrYearly,
+        yearlyDiscountPercent: p.yearlyDiscountPercent,
         storageLimitBytes: p.storageLimitBytes,
         monthlyExtractionLimit: p.monthlyExtractionLimit,
         dailyApiRequestLimit: p.dailyApiRequestLimit,

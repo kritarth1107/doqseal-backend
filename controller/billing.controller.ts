@@ -10,6 +10,9 @@ import cashfreeClient, {
 import razorpayClient, {
   verifyRazorpayWebhookSignature,
 } from '../utils/razorpay.client';
+import {
+  type BillingInterval,
+} from '../constants/plans';
 import { resolveBillingProvider } from '../utils/billingProvider.util';
 
 export class BillingController {
@@ -18,6 +21,7 @@ export class BillingController {
     const body = (request.body || {}) as {
       planId?: string;
       customerPhone?: string;
+      billingInterval?: string;
     };
 
     try {
@@ -25,6 +29,11 @@ export class BillingController {
       if (!body.planId) {
         return responseUtil.error(reply, 'planId is required', 400);
       }
+
+      const billingInterval: BillingInterval =
+        String(body.billingInterval || 'monthly').toLowerCase() === 'yearly'
+          ? 'yearly'
+          : 'monthly';
 
       const provider = resolveBillingProvider();
       if (!provider) {
@@ -35,11 +44,20 @@ export class BillingController {
         );
       }
 
+      if (billingInterval === 'yearly' && provider !== 'razorpay') {
+        return responseUtil.error(
+          reply,
+          'Annual billing is only available with Razorpay',
+          400
+        );
+      }
+
       const params = {
         userId: sessionUser.userId,
         organisationId,
         planId: body.planId,
         customerPhone: body.customerPhone?.trim() || undefined,
+        billingInterval,
       };
 
       const result =

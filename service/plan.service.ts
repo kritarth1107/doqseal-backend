@@ -3,6 +3,8 @@ import {
   FREE_PLAN,
   PLANS,
   STORAGE_DAY_RATE_INR,
+  YEARLY_SUBSCRIPTION_DISCOUNT_PERCENT,
+  computeYearlyPriceInr,
   type PlanLimits,
 } from '../constants/plans';
 
@@ -12,6 +14,8 @@ export type PlanDto = {
   tagline: string;
   description: string;
   priceInrMonthly: number | null;
+  priceInrYearly: number | null;
+  yearlyDiscountPercent: number;
   storageLimitBytes: number | null;
   monthlyExtractionLimit: number | null;
   dailyApiRequestLimit: number | null;
@@ -24,7 +28,9 @@ export type PlanDto = {
   sortOrder: number;
 };
 
-type DefaultPlanRow = PlanDto & { planId: string };
+type DefaultPlanRow = Omit<PlanDto, 'priceInrYearly' | 'yearlyDiscountPercent'> & {
+  planId: string;
+};
 
 const DEFAULT_PLANS: DefaultPlanRow[] = [
   {
@@ -145,9 +151,19 @@ const DEFAULT_PLANS: DefaultPlanRow[] = [
   },
 ];
 
+function withYearlyPricing(dto: Omit<PlanDto, 'priceInrYearly' | 'yearlyDiscountPercent'>): PlanDto {
+  const monthly = dto.priceInrMonthly;
+  return {
+    ...dto,
+    priceInrYearly:
+      monthly != null && monthly > 0 ? computeYearlyPriceInr(monthly) : null,
+    yearlyDiscountPercent: YEARLY_SUBSCRIPTION_DISCOUNT_PERCENT,
+  };
+}
+
 function docToDto(doc: IPlan | Record<string, unknown>): PlanDto {
   const d = doc as IPlan;
-  return {
+  return withYearlyPricing({
     id: d.planId,
     name: d.name,
     tagline: d.tagline || '',
@@ -163,7 +179,7 @@ function docToDto(doc: IPlan | Record<string, unknown>): PlanDto {
     contactSales: Boolean(d.contactSales),
     highlighted: Boolean(d.highlighted),
     sortOrder: d.sortOrder ?? 0,
-  };
+  });
 }
 
 function dtoToLimits(dto: PlanDto): PlanLimits {
@@ -235,23 +251,25 @@ export class PlanService {
   public async listActivePlans(): Promise<PlanDto[]> {
     const docs = await Plan.find({ isActive: true }).sort({ sortOrder: 1 }).lean();
     if (!docs.length) {
-      return DEFAULT_PLANS.map((p) => ({
-        id: p.planId,
-        name: p.name,
-        tagline: p.tagline,
-        description: p.description,
-        priceInrMonthly: p.priceInrMonthly,
-        storageLimitBytes: p.storageLimitBytes,
-        monthlyExtractionLimit: p.monthlyExtractionLimit,
-        dailyApiRequestLimit: p.dailyApiRequestLimit,
-        storageDayRateInr: p.storageDayRateInr,
-        minRetentionDays: p.minRetentionDays,
-        defaultRetentionDays: p.defaultRetentionDays,
-        features: p.features,
-        contactSales: p.contactSales,
-        highlighted: p.highlighted,
-        sortOrder: p.sortOrder,
-      }));
+      return DEFAULT_PLANS.map((p) =>
+        withYearlyPricing({
+          id: p.planId,
+          name: p.name,
+          tagline: p.tagline,
+          description: p.description,
+          priceInrMonthly: p.priceInrMonthly,
+          storageLimitBytes: p.storageLimitBytes,
+          monthlyExtractionLimit: p.monthlyExtractionLimit,
+          dailyApiRequestLimit: p.dailyApiRequestLimit,
+          storageDayRateInr: p.storageDayRateInr,
+          minRetentionDays: p.minRetentionDays,
+          defaultRetentionDays: p.defaultRetentionDays,
+          features: p.features,
+          contactSales: p.contactSales,
+          highlighted: p.highlighted,
+          sortOrder: p.sortOrder,
+        })
+      );
     }
     return docs.map((d) => docToDto(d));
   }
@@ -263,7 +281,7 @@ export class PlanService {
     }
     const fallback = DEFAULT_PLANS.find((p) => p.planId === planId);
     if (fallback) {
-      return dtoToLimits({
+      return dtoToLimits(withYearlyPricing({
         id: fallback.planId,
         name: fallback.name,
         tagline: fallback.tagline,
@@ -279,7 +297,7 @@ export class PlanService {
         contactSales: fallback.contactSales,
         highlighted: fallback.highlighted,
         sortOrder: fallback.sortOrder,
-      });
+      }));
     }
     if (planId in PLANS) {
       return PLANS[planId as keyof typeof PLANS];

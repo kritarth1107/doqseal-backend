@@ -1,5 +1,15 @@
 /** DoqSeal subscription plans (INR). Custom pricing is per-org via planDetails. */
 
+export type BillingInterval = 'monthly' | 'yearly';
+
+export const YEARLY_SUBSCRIPTION_DISCOUNT_PERCENT = 10;
+
+export function computeYearlyPriceInr(monthlyInr: number): number {
+  return Math.round(
+    monthlyInr * 12 * (1 - YEARLY_SUBSCRIPTION_DISCOUNT_PERCENT / 100)
+  );
+}
+
 export type PlanId = 'free' | 'starter' | 'growth' | 'scale' | 'custom';
 
 export type PlanLimits = {

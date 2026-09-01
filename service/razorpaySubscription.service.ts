@@ -12,6 +12,10 @@ import config from '../config/app.config';
 import { assertOrgRole, assertUserInOrganisation } from '../utils/org-access.util';
 import auditService from './audit.service';
 import { isRazorpayAuditOnlyEvent } from '../constants/razorpay.webhook.events';
+import {
+  computeYearlyPriceInr,
+  type BillingInterval,
+} from '../constants/plans';
 
 const PAID_PLAN_IDS = new Set(['starter', 'growth', 'scale']);
 
@@ -216,10 +220,25 @@ async function persistPaymentMethodsOnOrg(
   await Organisation.updateOne({ publicId: organisationId }, { $set: update });
 }
 
-function nextMonthDate(): Date {
+function nextPeriodEnd(interval: BillingInterval = 'monthly'): Date {
   const d = new Date();
-  d.setMonth(d.getMonth() + 1);
+  if (interval === 'yearly') {
+    d.setFullYear(d.getFullYear() + 1);
+  } else {
+    d.setMonth(d.getMonth() + 1);
+  }
   return d;
+}
+
+function normalizeBillingInterval(raw?: string | null): BillingInterval {
+  return String(raw || '').toLowerCase() === 'yearly' ? 'yearly' : 'monthly';
+}
+
+function subscriptionAmountInr(
+  monthlyInr: number,
+  interval: BillingInterval
+): number {
+  return interval === 'yearly' ? computeYearlyPriceInr(monthlyInr) : monthlyInr;
 }
 
 function entityFromPayload(
@@ -351,8 +370,10 @@ export class RazorpaySubscriptionService {
     organisationId: string;
     planId: string;
     customerPhone?: string;
+    billingInterval?: BillingInterval;
   }) {
     const { userId, organisationId, planId } = params;
+    const billingInterval = normalizeBillingInterval(params.billingInterval);
     await assertUserInOrganisation(userId, organisationId);
     await assertOrgRole(userId, organisationId, 'admin');
 
@@ -382,6 +403,12 @@ export class RazorpaySubscriptionService {
       throw new Error('Selected plan is not billable');
     }
 
+    const chargeAmountInr = subscriptionAmountInr(
+      plan.priceInrMonthly,
+      billingInterval
+    );
+    const intervalLabel = billingInterval === 'yearly' ? 'Annual' : 'Monthly';
+
     const subscriptionId = `sub_${uuidv4().replace(/-/g, '').slice(0, 20)}`;
     const returnUrl = `${config.server.liveFrontendUrl.replace(/\/$/, '')}/settings/billing?checkout=done&subscription_id=${subscriptionId}`;
 
@@ -393,19 +420,22 @@ export class RazorpaySubscriptionService {
     });
 
     const razorpayPlan = await razorpayClient.createPlan({
-      name: `DoqSeal ${plan.name}`,
-      amountInr: plan.priceInrMonthly,
-      planId,
+      name: `DoqSeal ${plan.name} (${intervalLabel})`,
+      amountInr: chargeAmountInr,
+      planId: `${planId}_${billingInterval}`,
+      interval: billingInterval,
     });
 
     const created = await razorpayClient.createSubscription({
       planId: razorpayPlan.id,
       customerId: customer.id,
+      billingInterval,
       notes: {
         organisation_id: organisationId,
         plan_id: planId,
         user_id: userId,
         doqseal_subscription_id: subscriptionId,
+        billing_interval: billingInterval,
       },
     });
 
@@ -418,12 +448,15 @@ export class RazorpaySubscriptionService {
       cashfreeSubscriptionId: created.id,
       cashfreeCfSubscriptionId: null,
       status: normalizeStatus(created.status),
-      amountInr: plan.priceInrMonthly,
+      amountInr: chargeAmountInr,
       currency: 'INR',
+      billingInterval,
       metadata: {
         returnUrl,
         razorpayPlanId: razorpayPlan.id,
         razorpayCustomerId: customer.id,
+        billingInterval,
+        monthlyPriceInr: plan.priceInrMonthly,
       },
     };
     if (phone.length === 10) {
@@ -438,7 +471,7 @@ export class RazorpaySubscriptionService {
       action: 'billing.subscription_checkout_started',
       resourceType: 'subscription',
       resourceId: subscriptionId,
-      metadata: { planId, amountInr: plan.priceInrMonthly, provider: 'razorpay' },
+      metadata: { planId, amountInr: chargeAmountInr, provider: 'razorpay', billingInterval },
     });
 
     return {
@@ -448,7 +481,8 @@ export class RazorpaySubscriptionService {
       razorpayKeyId: razorpayClient.getKeyId(),
       paymentUrl: created.short_url || null,
       checkoutMode: razorpayClient.getCheckoutMode(),
-      amountInr: plan.priceInrMonthly,
+      amountInr: chargeAmountInr,
+      billingInterval,
       planId,
       returnUrl,
     };
@@ -564,8 +598,9 @@ export class RazorpaySubscriptionService {
 
     if (params.status === 'active' || params.status === 'bank_approval_pending') {
       if (!sub.activatedAt && params.status === 'active') sub.activatedAt = new Date();
-      sub.currentPeriodEnd = nextMonthDate();
-      sub.nextChargeAt = nextMonthDate();
+      const interval = sub.billingInterval || 'monthly';
+      sub.currentPeriodEnd = nextPeriodEnd(interval);
+      sub.nextChargeAt = nextPeriodEnd(interval);
 
       await Organisation.updateOne(
         { publicId: sub.organisationId },
@@ -575,6 +610,7 @@ export class RazorpaySubscriptionService {
             'planDetails.billing.provider': 'razorpay',
             'planDetails.billing.subscriptionId': sub.subscriptionId,
             'planDetails.billing.razorpaySubscriptionId': sub.cashfreeSubscriptionId,
+            'planDetails.billing.billingInterval': interval,
             'planDetails.billing.status': params.status,
             'planDetails.billing.updatedAt': new Date().toISOString(),
             ...(method
