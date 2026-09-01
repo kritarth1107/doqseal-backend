@@ -124,6 +124,91 @@ export class OrganisationController {
     }
   };
 
+  public updateProfile = async (request: FastifyRequest, reply: FastifyReply) => {
+    const { organisationId } = request.params as { organisationId: string };
+    const sessionUser = (request as any).user;
+    const body = (request.body || {}) as {
+      name?: string;
+      website?: string | null;
+      gstNumber?: string | null;
+      address?: {
+        line1?: string | null;
+        line2?: string | null;
+        city?: string | null;
+        state?: string | null;
+        postalCode?: string | null;
+        country?: string | null;
+      };
+    };
+
+    try {
+      const details = await organisationService.updateOrganisationProfile(
+        organisationId,
+        sessionUser.userId,
+        body
+      );
+      return responseUtil.success(
+        reply,
+        'Organisation profile updated',
+        details
+      );
+    } catch (error: any) {
+      const status = error.message?.includes('Requires')
+        ? 403
+        : error.message === 'Organisation not found'
+          ? 404
+          : /valid|short|changes/i.test(error.message || '')
+            ? 400
+            : 500;
+      return responseUtil.error(
+        reply,
+        error.message || 'Failed to update organisation',
+        status
+      );
+    }
+  };
+
+  public uploadLogo = async (request: FastifyRequest, reply: FastifyReply) => {
+    const { organisationId } = request.params as { organisationId: string };
+    const sessionUser = (request as any).user;
+
+    try {
+      let fileBuffer: Buffer | null = null;
+      let mimeType = '';
+
+      const parts = request.parts();
+      for await (const part of parts) {
+        if (part.type === 'file') {
+          fileBuffer = await part.toBuffer();
+          mimeType = part.mimetype;
+        }
+      }
+
+      if (!fileBuffer || !mimeType) {
+        return responseUtil.error(reply, 'No image file provided', 400);
+      }
+
+      const result = await organisationService.updateOrganisationLogo(
+        organisationId,
+        sessionUser.userId,
+        { buffer: fileBuffer, mimeType }
+      );
+
+      return responseUtil.success(reply, 'Organisation logo updated', result);
+    } catch (error: any) {
+      const status = error.message?.includes('Requires')
+        ? 403
+        : /allowed|Invalid|smaller/i.test(error.message || '')
+          ? 400
+          : 500;
+      return responseUtil.error(
+        reply,
+        error.message || 'Failed to upload logo',
+        status
+      );
+    }
+  };
+
   public eraseDataSubject = async (
     request: FastifyRequest,
     reply: FastifyReply

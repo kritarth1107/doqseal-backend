@@ -173,6 +173,45 @@ export class UserService {
       role: 'owner'
     };
   }
+
+  public async updateProfile(userId: string, data: { name?: string }) {
+    const user = await User.findOne({ userId, deletedAt: null });
+    if (!user) throw new Error('User not found');
+
+    if (data.name !== undefined) {
+      const name = data.name.trim();
+      if (name.length < 2) throw new Error('Name must be at least 2 characters');
+      user.name = name;
+    }
+
+    await user.save();
+    return this.getUserProfile(userId);
+  }
+
+  public async updateAvatar(
+    userId: string,
+    file: { buffer: Buffer; mimeType: string }
+  ) {
+    const user = await User.findOne({ userId, deletedAt: null });
+    if (!user) throw new Error('User not found');
+
+    const profileMediaService = (await import('./profileMedia.service')).default;
+    const uploaded = await profileMediaService.uploadUserAvatar({
+      userId,
+      buffer: file.buffer,
+      mimeType: file.mimeType,
+      previousKey: user.avatarStorageKey || null,
+    });
+
+    user.avatar = uploaded.url;
+    user.avatarStorageKey = uploaded.objectKey;
+    await user.save();
+
+    return {
+      avatar: uploaded.url,
+      userId,
+    };
+  }
 }
 
 

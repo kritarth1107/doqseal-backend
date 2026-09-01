@@ -8,6 +8,8 @@ export interface IUser extends Document {
   name: string;
   email: string;
   avatar?: string;
+  /** Blob object key for profile image */
+  avatarStorageKey?: string | null;
   organisations?: {
     organisationId: string;
     role: string;
@@ -54,6 +56,10 @@ const UserSchema: Schema = new Schema(
       index: true,
     },
     avatar: {
+      type: String,
+      default: null,
+    },
+    avatarStorageKey: {
       type: String,
       default: null,
     },

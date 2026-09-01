@@ -47,6 +47,9 @@ export class OrganisationService {
       name: organisation.name,
       slug: organisation.slug,
       website: organisation.website,
+      logoUrl: organisation.logoUrl || null,
+      gstNumber: (organisation as any).gstNumber || null,
+      address: (organisation as any).address || null,
       verifiedDomain: (organisation as any).verifiedDomain || null,
       isDomainVerified: Boolean((organisation as any).isDomainVerified),
       autoJoinEnabled: Boolean((organisation as any).autoJoinDomain),
@@ -195,6 +198,110 @@ export class OrganisationService {
       documentsCount: documentCount,
       extractionsCount: extractionCount,
       pendingEnvelopes: pendingJobs,
+    };
+  }
+
+  private normalizeGst(gst?: string | null): string | null {
+    if (!gst) return null;
+    const value = gst.trim().toUpperCase().replace(/\s+/g, '');
+    if (!value) return null;
+    if (!/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/.test(value)) {
+      throw new Error('Enter a valid 15-character GSTIN');
+    }
+    return value;
+  }
+
+  public async updateOrganisationProfile(
+    organisationId: string,
+    userId: string,
+    data: {
+      name?: string;
+      website?: string | null;
+      gstNumber?: string | null;
+      address?: {
+        line1?: string | null;
+        line2?: string | null;
+        city?: string | null;
+        state?: string | null;
+        postalCode?: string | null;
+        country?: string | null;
+      };
+    }
+  ) {
+    const { assertOrgRole } = await import('../utils/org-access.util');
+    await assertOrgRole(userId, organisationId, 'admin');
+
+    const org = await Organisation.findOne({ publicId: organisationId, deletedAt: null });
+    if (!org) throw new Error('Organisation not found');
+
+    const update: Record<string, unknown> = {};
+
+    if (data.name !== undefined) {
+      const name = data.name.trim();
+      if (name.length < 2) throw new Error('Organisation name is too short');
+      update.name = name;
+    }
+
+    if (data.website !== undefined) {
+      const website = data.website?.trim() || null;
+      update.website = website;
+    }
+
+    if (data.gstNumber !== undefined) {
+      update.gstNumber = this.normalizeGst(data.gstNumber);
+    }
+
+    if (data.address !== undefined) {
+      update.address = {
+        line1: data.address.line1?.trim() || null,
+        line2: data.address.line2?.trim() || null,
+        city: data.address.city?.trim() || null,
+        state: data.address.state?.trim() || null,
+        postalCode: data.address.postalCode?.trim() || null,
+        country: data.address.country?.trim() || 'IN',
+      };
+    }
+
+    if (!Object.keys(update).length) {
+      throw new Error('No changes to save');
+    }
+
+    await Organisation.updateOne({ publicId: organisationId }, { $set: update });
+    return this.getOrganisationDetails(organisationId);
+  }
+
+  public async updateOrganisationLogo(
+    organisationId: string,
+    userId: string,
+    file: { buffer: Buffer; mimeType: string }
+  ) {
+    const { assertOrgRole } = await import('../utils/org-access.util');
+    await assertOrgRole(userId, organisationId, 'admin');
+
+    const org = await Organisation.findOne({ publicId: organisationId, deletedAt: null });
+    if (!org) throw new Error('Organisation not found');
+
+    const profileMediaService = (await import('./profileMedia.service')).default;
+    const uploaded = await profileMediaService.uploadOrgLogo({
+      organisationId,
+      buffer: file.buffer,
+      mimeType: file.mimeType,
+      previousKey: (org as any).logoStorageKey || null,
+    });
+
+    await Organisation.updateOne(
+      { publicId: organisationId },
+      {
+        $set: {
+          logoUrl: uploaded.url,
+          logoStorageKey: uploaded.objectKey,
+        },
+      }
+    );
+
+    return {
+      logoUrl: uploaded.url,
+      organisationId,
     };
   }
 }

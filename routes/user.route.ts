@@ -92,6 +92,32 @@ export const userRouter: FastifyPluginAsync = async (fastify: FastifyInstance) =
     userController.logoutAll
   );
 
+  fastify.patch(
+    '/profile',
+    {
+      schema: {
+        tags: ['User'],
+        summary: 'Update user profile',
+        security: bearerSecurity,
+        response: { 200: ApiSuccessSchema, ...errorResponses },
+      },
+    },
+    userController.updateProfile
+  );
+
+  fastify.post(
+    '/avatar',
+    {
+      schema: {
+        tags: ['User'],
+        summary: 'Upload user avatar',
+        security: bearerSecurity,
+        response: { 200: ApiSuccessSchema, ...errorResponses },
+      },
+    },
+    userController.uploadAvatar
+  );
+
   fastify.delete(
     '/me',
     {

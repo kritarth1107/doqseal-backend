@@ -10,7 +10,19 @@ export interface IOrganisation extends Document {
   planDetails?: any;
   memberCount: number;
   logoUrl?: string;
-  website?: string;
+  /** GSTIN for Indian B2B invoicing */
+  gstNumber?: string | null;
+  address?: {
+    line1?: string | null;
+    line2?: string | null;
+    city?: string | null;
+    state?: string | null;
+    postalCode?: string | null;
+    country?: string | null;
+  };
+  /** Blob object key for organisation logo (profiles/orgs/...) */
+  logoStorageKey?: string | null;
+  website?: string | null;
   /** Verified email domain for auto-join (e.g. acme.com) */
   verifiedDomain?: string | null;
   /** Domain awaiting DNS verification */
@@ -70,6 +82,24 @@ const OrganisationSchema: Schema = new Schema(
       default: 0,
     },
     logoUrl: {
+      type: String,
+      default: null,
+    },
+    gstNumber: {
+      type: String,
+      default: null,
+      trim: true,
+      uppercase: true,
+    },
+    address: {
+      line1: { type: String, default: null },
+      line2: { type: String, default: null },
+      city: { type: String, default: null },
+      state: { type: String, default: null },
+      postalCode: { type: String, default: null },
+      country: { type: String, default: 'IN' },
+    },
+    logoStorageKey: {
       type: String,
       default: null,
     },

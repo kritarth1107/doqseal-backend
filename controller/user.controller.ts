@@ -127,6 +127,60 @@ export class UserController {
     }
   }
 
+  public async updateProfile(request: FastifyRequest, reply: FastifyReply) {
+    const sessionUser = (request as any).user;
+    const body = (request.body || {}) as { name?: string };
+
+    try {
+      const profile = await userService.updateProfile(sessionUser.userId, body);
+      return responseUtil.success(reply, 'Profile updated', profile);
+    } catch (error: any) {
+      const status = /must|characters/i.test(error.message || '') ? 400 : 500;
+      return responseUtil.error(
+        reply,
+        error.message || 'Failed to update profile',
+        status
+      );
+    }
+  }
+
+  public async uploadAvatar(request: FastifyRequest, reply: FastifyReply) {
+    const sessionUser = (request as any).user;
+
+    try {
+      let fileBuffer: Buffer | null = null;
+      let mimeType = '';
+
+      const parts = request.parts();
+      for await (const part of parts) {
+        if (part.type === 'file') {
+          fileBuffer = await part.toBuffer();
+          mimeType = part.mimetype;
+        }
+      }
+
+      if (!fileBuffer || !mimeType) {
+        return responseUtil.error(reply, 'No image file provided', 400);
+      }
+
+      const result = await userService.updateAvatar(sessionUser.userId, {
+        buffer: fileBuffer,
+        mimeType,
+      });
+
+      return responseUtil.success(reply, 'Avatar updated', result);
+    } catch (error: any) {
+      const status = /allowed|Invalid|smaller/i.test(error.message || '')
+        ? 400
+        : 500;
+      return responseUtil.error(
+        reply,
+        error.message || 'Failed to upload avatar',
+        status
+      );
+    }
+  }
+
   public async logoutAll(request: FastifyRequest, reply: FastifyReply) {
     const sessionUser = (request as any).user;
     const authHeader = request.headers.authorization;

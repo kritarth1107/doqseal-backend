@@ -37,6 +37,7 @@ import { envelopeRouter } from './routes/envelope.route';
 import { envelopePublicRouter } from './routes/envelopePublic.route';
 import { chatRouter } from './routes/chat.route';
 import { billingRouter } from './routes/billing.route';
+import { mediaRouter } from './routes/media.route';
 import { domainAccessRouter } from './routes/domainAccess.route';
 
 
@@ -191,6 +192,7 @@ export class ServerSetup {
     this.app.register(envelopePublicRouter, { prefix: `/${apiPrefix}/envelopes` });
     this.app.register(chatRouter, { prefix: `/${apiPrefix}/chat` });
     this.app.register(billingRouter, { prefix: `/${apiPrefix}` });
+    this.app.register(mediaRouter, { prefix: `/${apiPrefix}/media` });
 
 
 

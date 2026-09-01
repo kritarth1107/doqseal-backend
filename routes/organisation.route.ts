@@ -70,6 +70,34 @@ export const organisationRouter: FastifyPluginAsync = async (
     organisationController.getDetails.bind(organisationController)
   );
 
+  fastify.patch(
+    '/:organisationId/profile',
+    {
+      schema: {
+        tags: ['Organisations'],
+        summary: 'Update organisation profile (admin/owner)',
+        security: bearerSecurity,
+        params: OrganisationIdParams,
+        response: { 200: ApiSuccessSchema, ...errorResponses },
+      },
+    },
+    organisationController.updateProfile.bind(organisationController)
+  );
+
+  fastify.post(
+    '/:organisationId/logo',
+    {
+      schema: {
+        tags: ['Organisations'],
+        summary: 'Upload organisation logo',
+        security: bearerSecurity,
+        params: OrganisationIdParams,
+        response: { 200: ApiSuccessSchema, ...errorResponses },
+      },
+    },
+    organisationController.uploadLogo.bind(organisationController)
+  );
+
   fastify.delete(
     '/:id/data-subject/:email',
     {

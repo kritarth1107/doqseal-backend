@@ -171,6 +171,64 @@ export async function deleteEncryptedObject(params: {
   await fs.unlink(fullPath);
 }
 
+export async function putPublicMedia(
+  objectKey: string,
+  data: Buffer,
+  contentType: string
+): Promise<{ storagePath: string; storageUri: string; storageProvider: StorageProvider }> {
+  if (!isAzureBlobEnabled()) {
+    const root = path.resolve(config.storage.root);
+    const fullPath = path.join(root, ...objectKey.split('/'));
+    await fs.mkdir(path.dirname(fullPath), { recursive: true });
+    await fs.writeFile(fullPath, data);
+    return {
+      storagePath: objectKey,
+      storageUri: `file://${fullPath.replace(/\\/g, '/')}`,
+      storageProvider: 'local',
+    };
+  }
+
+  const client = getContainerClient();
+  const blob = client.getBlockBlobClient(objectKey);
+  await blob.uploadData(data, {
+    blobHTTPHeaders: {
+      blobContentType: contentType,
+    },
+  });
+
+  return {
+    storagePath: objectKey,
+    storageUri: blob.url.split('?')[0],
+    storageProvider: 'azure-blob',
+  };
+}
+
+export async function getPublicMedia(params: {
+  storagePath: string;
+  storageUri?: string | null;
+  storageProvider?: StorageProvider | string | null;
+}): Promise<{ buffer: Buffer; contentType: string }> {
+  const buffer = await getEncryptedObject(params);
+  const ext = path.extname(params.storagePath).toLowerCase();
+  const contentType =
+    ext === '.png'
+      ? 'image/png'
+      : ext === '.webp'
+        ? 'image/webp'
+        : ext === '.gif'
+          ? 'image/gif'
+          : 'image/jpeg';
+  return { buffer, contentType };
+}
+
+export async function deletePublicMedia(params: {
+  storagePath: string;
+  storageUri?: string | null;
+  storageProvider?: StorageProvider | string | null;
+}): Promise<void> {
+  await deleteEncryptedObject(params);
+}
+
 /** Kept for any callers still importing StorageUtil-style helpers */
 export function buildLocalDocumentDir(
   organisationId: string,
@@ -193,4 +251,7 @@ export default {
   putEncryptedObject,
   getEncryptedObject,
   deleteEncryptedObject,
+  putPublicMedia,
+  getPublicMedia,
+  deletePublicMedia,
 };
