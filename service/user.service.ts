@@ -32,7 +32,8 @@ export class UserService {
           userOrganisations.push({
             organisationId: userOrg.organisationId,
             name: org.name,
-            role: userOrg.role
+            role: userOrg.role,
+            logoUrl: org.logoUrl || null,
           });
         }
       }
