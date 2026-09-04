@@ -69,7 +69,7 @@ export class ExtractionService {
     }
 
     const extraction = await Extraction.findOne({ documentId })
-      .sort({ version: -1 });
+      .sort({ createdAt: -1, version: -1 });
 
     if (!extraction) {
       throw new Error('No extraction found for this document');

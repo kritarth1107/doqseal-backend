@@ -15,6 +15,8 @@ export class JobService {
     organisationId: string;
     projectId?: string | null;
     userContext?: string | null;
+    /** Prefer vision/LLM over OCR-only shortcuts (re-runs / user context). */
+    forceAi?: boolean;
   }) {
     const { documentId, organisationId, projectId } = params;
     const userContext =
@@ -31,10 +33,10 @@ export class JobService {
       await quotaService.assertExtractionAllowed(organisationId);
     }
 
-    if (useDemoExtraction) {
-      // Clear prior extraction so re-upload / reprocess feels fresh
-      await Extraction.deleteMany({ documentId });
+    // Always clear prior extraction so re-runs don't keep serving stale OCR/AI results
+    await Extraction.deleteMany({ documentId });
 
+    if (useDemoExtraction) {
       const revealAt = new Date(Date.now() + DEMO_PROCESSING_MS);
       const job = await ExtractionJob.create({
         jobId: uuidv4(),
@@ -46,6 +48,7 @@ export class JobService {
         demoMode: true,
         demoRevealAt: revealAt,
         userContext,
+        forceAi: Boolean(userContext) || Boolean(params.forceAi),
       });
 
       await Document.updateOne(
@@ -90,11 +93,12 @@ export class JobService {
       projectId: projectId || null,
       status: 'queued',
       userContext,
+      forceAi: Boolean(userContext) || Boolean(params.forceAi),
     });
 
     await Document.updateOne(
       { documentId },
-      { $set: { status: 'queued' } }
+      { $set: { status: 'queued', displayTitle: null } }
     );
 
     await RabbitMQUtil.publishToQueue(EXTRACTION_QUEUE, {
@@ -137,7 +141,7 @@ export class JobService {
     }
 
     const extraction = await Extraction.findOne({ jobId })
-      .sort({ version: -1 })
+      .sort({ createdAt: -1, version: -1 })
       .lean();
 
     return {

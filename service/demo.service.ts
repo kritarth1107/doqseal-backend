@@ -281,7 +281,7 @@ export class DemoService {
     };
     const fieldConfidence = demoFieldConfidence(extraction);
     const prev = await Extraction.findOne({ documentId: job.documentId })
-      .sort({ version: -1 })
+      .sort({ createdAt: -1, version: -1 })
       .lean();
     const version = (prev?.version || 0) + 1;
     const now = new Date();

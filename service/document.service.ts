@@ -4,6 +4,7 @@ import Document from '../model/document.model';
 import Project from '../model/project.model';
 import Extraction from '../model/extraction.model';
 import ExtractionJob from '../model/extractionJob.model';
+import User from '../model/user.model';
 import { v4 as uuidv4 } from 'uuid';
 import {
   buildObjectKey,
@@ -378,13 +379,32 @@ export class DocumentService {
     }
 
     const extraction = await Extraction.findOne({ documentId })
-      .sort({ version: -1 })
+      .sort({ createdAt: -1, version: -1 })
       .lean();
+
+    const [project, uploader] = await Promise.all([
+      document.projectId
+        ? Project.findOne({
+            projectId: document.projectId,
+            organisationId,
+            deletedAt: null,
+          })
+            .select('projectId name')
+            .lean()
+        : Promise.resolve(null),
+      document.uploadedBy
+        ? User.findOne({ userId: document.uploadedBy, deletedAt: null })
+            .select('userId name email avatar avatarStorageKey')
+            .lean()
+        : Promise.resolve(null),
+    ]);
 
     return {
       document: {
         documentId: document.documentId,
         projectId: document.projectId ?? null,
+        projectName: project?.name || null,
+        organisationId: document.organisationId,
         originalFilename: document.originalFilename,
         displayTitle: document.displayTitle || null,
         mimeType: document.mimeType,
@@ -392,6 +412,14 @@ export class DocumentService {
         status: document.status,
         contentHash: document.contentHash,
         uploadedBy: document.uploadedBy,
+        uploadedByUser: uploader
+          ? {
+              userId: uploader.userId,
+              name: uploader.name,
+              email: uploader.email || null,
+              avatar: uploader.avatar || null,
+            }
+          : null,
         sharedWithOrganisation: document.sharedWithOrganisation !== false,
         filePurgedAt: document.filePurgedAt || null,
         retentionDays: document.retentionDays ?? null,
@@ -595,6 +623,7 @@ export class DocumentService {
       organisationId,
       projectId: document.projectId || null,
       userContext: userContext || null,
+      forceAi: true,
     });
 
     await auditService.logEvent({

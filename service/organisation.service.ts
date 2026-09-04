@@ -108,7 +108,7 @@ export class OrganisationService {
     const documentIds = recentDocs.map((d) => d.documentId);
     const extractions = documentIds.length
       ? await Extraction.find({ documentId: { $in: documentIds } })
-          .sort({ version: -1 })
+          .sort({ createdAt: -1, version: -1 })
           .lean()
       : [];
 

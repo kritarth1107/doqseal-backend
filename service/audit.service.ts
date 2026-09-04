@@ -1,4 +1,5 @@
 import AuditEvent from '../model/auditEvent.model';
+import User from '../model/user.model';
 import { assertUserInOrganisation } from '../utils/org-access.util';
 
 export interface LogAuditEventParams {
@@ -94,15 +95,62 @@ export class AuditService {
       .limit(100)
       .lean();
 
-    return events.map((event) => ({
-      actorId: event.actorId,
-      organisationId: event.organisationId,
-      action: event.action,
-      resourceType: event.resourceType,
-      resourceId: event.resourceId,
-      metadata: event.metadata,
-      timestamp: event.timestamp,
-    }));
+    const actorIds = Array.from(
+      new Set(
+        events
+          .map((e) => e.actorId)
+          .filter(
+            (id): id is string =>
+              Boolean(id) && !String(id).startsWith('system:')
+          )
+      )
+    );
+
+    const users = actorIds.length
+      ? await User.find({ userId: { $in: actorIds }, deletedAt: null })
+          .select('userId name email avatar')
+          .lean()
+      : [];
+    const userById = new Map(users.map((u) => [u.userId, u]));
+
+    return events.map((event) => {
+      const user = userById.get(event.actorId);
+      const isSystem = String(event.actorId || '').startsWith('system:');
+      return {
+        actorId: event.actorId,
+        actor: isSystem
+          ? {
+              userId: event.actorId,
+              name: event.actorId === 'system:webhook' ? 'Webhook' : 'System',
+              email: null,
+              avatar: null,
+              isSystem: true,
+            }
+          : user
+            ? {
+                userId: user.userId,
+                name: user.name,
+                email: user.email || null,
+                avatar: user.avatar || null,
+                isSystem: false,
+              }
+            : event.actorId
+              ? {
+                  userId: event.actorId,
+                  name: event.actorId.slice(0, 8),
+                  email: null,
+                  avatar: null,
+                  isSystem: false,
+                }
+              : null,
+        organisationId: event.organisationId,
+        action: event.action,
+        resourceType: event.resourceType,
+        resourceId: event.resourceId,
+        metadata: event.metadata,
+        timestamp: event.timestamp,
+      };
+    });
   }
 }
 

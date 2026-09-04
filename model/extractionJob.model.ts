@@ -20,6 +20,8 @@ export interface IExtractionJob extends Document {
   demoRevealAt?: Date | null;
   /** Optional extra context supplied when re-running extraction */
   userContext?: string | null;
+  /** Prefer AI vision/LLM over OCR-only fast paths */
+  forceAi?: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -77,6 +79,10 @@ const ExtractionJobSchema: Schema = new Schema(
     userContext: {
       type: String,
       default: null,
+    },
+    forceAi: {
+      type: Boolean,
+      default: false,
     },
   },
   {
