@@ -73,8 +73,9 @@ const config: AppConfig = {
     security: {
         bcryptSaltRounds: 10,                                      // Number of salt rounds for bcrypt
         rateLimiting: {
-            windowMs: 15 * 60 * 1000,                             // Rate limiting window (15 minutes)
-            max: 100,                                              // Max requests per window per IP
+            // Dashboard + mobile make many parallel BFF/API calls; 100/15m was too low.
+            windowMs: Number(process.env.RATE_LIMIT_WINDOW_MS) || 60 * 1000, // 1 minute
+            max: Number(process.env.RATE_LIMIT_MAX) || 1000, // 1000 req / min / IP
         },
     },
 

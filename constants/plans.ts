@@ -39,8 +39,8 @@ export const PLANS: Record<Exclude<PlanId, 'custom'>, PlanLimits> = {
     name: 'Free',
     priceInrMonthly: 0,
     storageLimitBytes: 5 * 1024 * 1024, // 5 MB
-    monthlyExtractionLimit: 2,
-    dailyApiRequestLimit: 0,
+    monthlyExtractionLimit: 50,
+    dailyApiRequestLimit: 1_000,
     minRetentionDays: MIN_RETENTION_DAYS,
     defaultRetentionDays: DEFAULT_RETENTION_DAYS,
     storageDayRateInr: STORAGE_DAY_RATE_INR,
