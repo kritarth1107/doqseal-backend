@@ -39,6 +39,7 @@ import { chatRouter } from './routes/chat.route';
 import { billingRouter } from './routes/billing.route';
 import { mediaRouter } from './routes/media.route';
 import { domainAccessRouter } from './routes/domainAccess.route';
+import { requestLinkRouter, requestLinkPublicRouter, collectDomainRouter } from './routes/requestLink.route';
 
 
 
@@ -182,6 +183,7 @@ export class ServerSetup {
     this.app.register(apiKeyRouter, { prefix: `/${apiPrefix}/api-wickets` });
     this.app.register(organisationRouter, { prefix: `/${apiPrefix}/organisations` });
     this.app.register(domainAccessRouter, { prefix: `/${apiPrefix}/organisations` });
+    this.app.register(collectDomainRouter, { prefix: `/${apiPrefix}/organisations` });
     this.app.register(membershipRouter, { prefix: `/${apiPrefix}/organisations` });
     this.app.register(inviteRouter, { prefix: `/${apiPrefix}/invites` });
     this.app.register(auditRouter, { prefix: `/${apiPrefix}/organisations` });
@@ -190,6 +192,8 @@ export class ServerSetup {
     this.app.register(jobRouter, { prefix: `/${apiPrefix}/jobs` });
     this.app.register(envelopeRouter, { prefix: `/${apiPrefix}/envelopes` });
     this.app.register(envelopePublicRouter, { prefix: `/${apiPrefix}/envelopes` });
+    this.app.register(requestLinkRouter, { prefix: `/${apiPrefix}/request-links` });
+    this.app.register(requestLinkPublicRouter, { prefix: `/${apiPrefix}/request-links` });
     this.app.register(chatRouter, { prefix: `/${apiPrefix}/chat` });
     this.app.register(billingRouter, { prefix: `/${apiPrefix}` });
     this.app.register(mediaRouter, { prefix: `/${apiPrefix}/media` });

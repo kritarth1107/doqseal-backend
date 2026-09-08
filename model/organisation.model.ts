@@ -42,6 +42,13 @@ export interface IOrganisation extends Document {
     events: string[];
     enabled?: boolean;
   }[];
+  /** Custom hostnames for collect.doqseal.com white-label */
+  collectDomains?: {
+    hostname: string;
+    verified: boolean;
+    verificationToken: string;
+    verifiedAt?: Date | null;
+  }[];
 
   deletedAt?: Date;
   createdAt: Date;
@@ -150,6 +157,17 @@ const OrganisationSchema: Schema = new Schema(
           url: { type: String, required: true },
           events: { type: [String], default: ['document.processed'] },
           enabled: { type: Boolean, default: true },
+        },
+      ],
+      default: [],
+    },
+    collectDomains: {
+      type: [
+        {
+          hostname: { type: String, required: true, lowercase: true, trim: true },
+          verified: { type: Boolean, default: false },
+          verificationToken: { type: String, required: true },
+          verifiedAt: { type: Date, default: null },
         },
       ],
       default: [],
