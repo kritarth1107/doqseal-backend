@@ -10,8 +10,6 @@ import {
   DEMO_ORG_NAME,
   DEMO_ORG_SLUG,
   DEMO_PROCESSING_MS,
-  DEMO_PROJECT_FIELDS,
-  DEMO_PROJECT_HINT,
   DEMO_PROJECT_NAME,
   DEMO_USER_NAME,
   demoFieldConfidence,
@@ -42,20 +40,10 @@ export class DemoService {
     organisationId: string,
     projectId?: string | null
   ): Promise<boolean> {
-    if (!projectId) return false;
-    if (!(await this.isDemoOrganisation(organisationId))) return false;
-
-    const project = await Project.findOne({
-      projectId,
-      organisationId,
-      deletedAt: null,
-    }).lean();
-
-    if (!project) return false;
-
-    // Only the seeded showcase project uses canned extraction.
-    // Other demo-org projects (e.g. Lupin TRFs) run real AI.
-    return (project.name || '').trim() === DEMO_PROJECT_NAME;
+    // Canned showcase extraction removed — demo account uses real AI for all projects.
+    void organisationId;
+    void projectId;
+    return false;
   }
 
   /**
@@ -175,43 +163,81 @@ export class DemoService {
     ];
 
     await user.save();
-    await this.ensureTrfProject(orgPublicId, user.userId);
+    // Keep the demo login account, but do not reseed canned TRF projects/docs.
+    // One-time wipe so prospects get a clean workspace with real AI extraction.
+    await this.clearDemoShowcaseContent(orgPublicId);
 
     const refreshed = await User.findOne({ userId: user.userId, deletedAt: null });
     return refreshed || user;
   }
 
-  public async ensureTrfProject(organisationId: string, createdBy: string) {
-    let project = await Project.findOne({
+  /**
+   * Soft-delete showcase projects/documents once. Keeps demo@doqseal.com + org.
+   */
+  public async clearDemoShowcaseContent(organisationId: string) {
+    const org = await Organisation.findOne({
+      publicId: organisationId,
+      deletedAt: null,
+    });
+    if (!org) return;
+
+    const meta = ((org as { demoMeta?: { contentClearedAt?: Date } }).demoMeta ||
+      {}) as { contentClearedAt?: Date };
+    if (meta.contentClearedAt) return;
+
+    const now = new Date();
+
+    await Project.updateMany(
+      { organisationId, deletedAt: null },
+      { $set: { deletedAt: now, status: 'archived', updatedAt: now } }
+    );
+
+    const docs = await Document.find({
       organisationId,
       deletedAt: null,
-      name: DEMO_PROJECT_NAME,
-    });
+    })
+      .select({ documentId: 1 })
+      .lean();
+    const documentIds = docs.map((d) => d.documentId);
 
-    if (!project) {
-      project = await Project.create({
-        projectId: uuidv4(),
-        organisationId,
-        createdBy,
-        name: DEMO_PROJECT_NAME,
-        description:
-          'Demo Lupin TRF project — uploads use canned extraction (no AI) for demos.',
-        extractionHint: DEMO_PROJECT_HINT,
-        fields: [...DEMO_PROJECT_FIELDS],
-        crossFieldRules: [],
-        status: 'active',
-        sharedWithOrganisation: true,
-      });
-    } else {
-      project.extractionHint = DEMO_PROJECT_HINT;
-      project.fields = [...DEMO_PROJECT_FIELDS] as typeof project.fields;
-      project.markModified('fields');
-      project.description =
-        'Demo Lupin TRF project — uploads use canned extraction (no AI) for demos.';
-      await project.save();
+    if (documentIds.length) {
+      await Document.updateMany(
+        { organisationId, deletedAt: null },
+        { $set: { deletedAt: now, updatedAt: now } }
+      );
+      await Extraction.deleteMany({ documentId: { $in: documentIds } });
+      await ExtractionJob.updateMany(
+        { documentId: { $in: documentIds } },
+        { $set: { status: 'cancelled', updatedAt: now } }
+      );
     }
 
-    return project;
+    (org as { demoMeta?: Record<string, unknown> }).demoMeta = {
+      ...meta,
+      contentClearedAt: now,
+    };
+    org.markModified('demoMeta');
+    await org.save();
+  }
+
+  /** @deprecated Showcase TRF project is no longer seeded for demos. */
+  public async ensureTrfProject(organisationId: string, createdBy: string) {
+    // Soft-delete any leftover canned project instead of recreating it.
+    await Project.updateMany(
+      {
+        organisationId,
+        deletedAt: null,
+        name: DEMO_PROJECT_NAME,
+      },
+      {
+        $set: {
+          deletedAt: new Date(),
+          status: 'archived',
+          description: 'Archived demo showcase project',
+        },
+      }
+    );
+    return null;
   }
 
   public async finalizeDemoJobIfDue(

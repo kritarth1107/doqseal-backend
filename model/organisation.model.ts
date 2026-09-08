@@ -34,8 +34,12 @@ export interface IOrganisation extends Document {
   /** When true, users with matching verified email domain auto-join on login */
   autoJoinDomain: boolean;
   isActive: boolean;
-  /** Demo workspace — canned TRF extraction, fixed OTP login */
+  /** Demo workspace — shared prospect account (real AI, no canned content) */
   isDemo?: boolean;
+  /** One-time cleanup marker for demo showcase content */
+  demoMeta?: {
+    contentClearedAt?: Date;
+  };
   /** Organisation-wide webhook endpoint(s) — configured in API management */
   webhooks?: {
     url: string;
@@ -150,6 +154,10 @@ const OrganisationSchema: Schema = new Schema(
       type: Boolean,
       default: false,
       index: true,
+    },
+    demoMeta: {
+      type: Schema.Types.Mixed,
+      default: {},
     },
     webhooks: {
       type: [
