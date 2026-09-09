@@ -10,7 +10,6 @@ import {
   DEMO_ORG_NAME,
   DEMO_ORG_SLUG,
   DEMO_PROCESSING_MS,
-  DEMO_PROJECT_NAME,
   DEMO_USER_NAME,
   demoFieldConfidence,
   isDemoEmail,
@@ -163,9 +162,7 @@ export class DemoService {
     ];
 
     await user.save();
-    // Keep the demo login account, but do not reseed canned TRF projects/docs.
-    // One-time wipe so prospects get a clean workspace with real AI extraction.
-    await this.clearDemoShowcaseContent(orgPublicId);
+    // Keep demo account + org. Do not wipe projects/documents on login.
 
     const refreshed = await User.findOne({ userId: user.userId, deletedAt: null });
     return refreshed || user;
@@ -173,6 +170,7 @@ export class DemoService {
 
   /**
    * Soft-delete showcase projects/documents once. Keeps demo@doqseal.com + org.
+   * Disabled for now — call manually only if you intentionally want a clean demo workspace.
    */
   public async clearDemoShowcaseContent(organisationId: string) {
     const org = await Organisation.findOne({
@@ -220,23 +218,8 @@ export class DemoService {
     await org.save();
   }
 
-  /** @deprecated Showcase TRF project is no longer seeded for demos. */
-  public async ensureTrfProject(organisationId: string, createdBy: string) {
-    // Soft-delete any leftover canned project instead of recreating it.
-    await Project.updateMany(
-      {
-        organisationId,
-        deletedAt: null,
-        name: DEMO_PROJECT_NAME,
-      },
-      {
-        $set: {
-          deletedAt: new Date(),
-          status: 'archived',
-          description: 'Archived demo showcase project',
-        },
-      }
-    );
+  /** No-op — do not auto-archive the TRF project on login. */
+  public async ensureTrfProject(_organisationId: string, _createdBy: string) {
     return null;
   }
 
