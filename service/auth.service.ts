@@ -17,6 +17,11 @@ import {
 } from '../constants/demo.account';
 import demoService from './demo.service';
 import domainAccessService from './domainAccess.service';
+import { durationFromNow, parseDurationToMs } from '../utils/duration.util';
+import TokenBlacklist from '../utils/token-blacklist.util';
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+const SESSION_FALLBACK_MS = 30 * DAY_MS;
 
 
 /**
@@ -253,10 +258,8 @@ export class AuthService {
       expiresIn: config.jwt.validity as any,
     });
 
-    // 4. Create Session Record
-    // Set expiration based on config (parsing "24h" to Date)
-    const expiresAt = new Date();
-    expiresAt.setHours(expiresAt.getHours() + 24); // Default to 24h if parsing fails
+    // 4. Create Session Record (sliding window — longer than JWT so refresh can work)
+    const expiresAt = durationFromNow(config.jwt.sessionValidity, SESSION_FALLBACK_MS);
 
     await Session.create({
       userId: user.userId,
@@ -269,6 +272,111 @@ export class AuthService {
     });
 
     return { token, organisationName };
+  }
+
+  /**
+   * Silently rotate an access JWT while the underlying session is still ACTIVE.
+   * Accepts an expired JWT as long as the DB session has not passed expiresAt.
+   */
+  public async refreshSessionToken(params: {
+    token: string;
+    fingerprint: string;
+    ipAddress?: string;
+    userAgent?: string;
+  }): Promise<{ token: string }> {
+    const { token, fingerprint, ipAddress, userAgent } = params;
+
+    if (await TokenBlacklist.isBlacklisted(token)) {
+      throw new Error('Session revoked. Please log in again.');
+    }
+
+    let decoded: {
+      userId: string;
+      email?: string;
+      displayName?: string;
+      organisationName?: string;
+      fingerprint?: string;
+      exp?: number;
+    };
+
+    try {
+      decoded = jwt.verify(token, config.jwt.secret as string, {
+        ignoreExpiration: true,
+      }) as typeof decoded;
+    } catch {
+      throw new Error('Invalid session token.');
+    }
+
+    if (!decoded?.userId) {
+      throw new Error('Invalid token payload.');
+    }
+
+    if (decoded.fingerprint && decoded.fingerprint !== fingerprint) {
+      throw new Error('Session fingerprint mismatch.');
+    }
+
+    const [session, user] = await Promise.all([
+      Session.findOne({
+        userId: decoded.userId,
+        token,
+        fingerprint,
+        status: 'ACTIVE',
+      }),
+      User.findOne({ userId: decoded.userId }),
+    ]);
+
+    if (!session) {
+      throw new Error('Session expired or invalid. Please log in again.');
+    }
+
+    if (session.expiresAt && session.expiresAt.getTime() < Date.now()) {
+      session.status = 'EXPIRED';
+      await session.save();
+      throw new Error('Session expired. Please log in again.');
+    }
+
+    if (!user) {
+      throw new Error('User account no longer exists.');
+    }
+
+    const userStatus = (user as any).status;
+    if (userStatus === 'BANNED' || userStatus === 'SUSPENDED' || userStatus === 'DELETED') {
+      throw new Error(`Account is ${String(userStatus).toLowerCase()}. Access denied.`);
+    }
+
+    let organisationName = decoded.organisationName || 'Personal';
+    if (user.organisations && user.organisations.length > 0) {
+      const org = await Organisation.findOne({ publicId: user.organisations[0].organisationId }).lean();
+      if (org) organisationName = org.name;
+    }
+
+    const payload = {
+      userId: user.userId,
+      email: user.email,
+      displayName: user.name,
+      organisationName,
+      fingerprint,
+    };
+
+    const newToken = jwt.sign(payload, config.jwt.secret as string, {
+      expiresIn: config.jwt.validity as any,
+    });
+
+    const previousToken = session.token;
+    session.token = newToken;
+    session.expiresAt = durationFromNow(config.jwt.sessionValidity, SESSION_FALLBACK_MS);
+    if (ipAddress) session.ipAddress = ipAddress;
+    if (userAgent) session.userAgent = userAgent;
+    await session.save();
+
+    // Best-effort revoke of the previous access JWT (in-memory blacklist)
+    const jwtMs = parseDurationToMs(config.jwt.validity, DAY_MS);
+    const remainingSec = decoded.exp
+      ? Math.max(0, decoded.exp - Math.floor(Date.now() / 1000))
+      : Math.ceil(jwtMs / 1000);
+    await TokenBlacklist.blacklistToken(previousToken, remainingSec || Math.ceil(jwtMs / 1000));
+
+    return { token: newToken };
   }
 
 

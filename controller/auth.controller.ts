@@ -115,6 +115,30 @@ export class AuthController {
       return responseUtil.error(reply, error.message || error.toString(), 400);
     }
   }
+
+  /**
+   * Rotate access JWT for an ACTIVE sliding session (works with recently expired JWTs).
+   */
+  public async refresh(request: FastifyRequest, reply: FastifyReply) {
+    try {
+      const authHeader = request.headers.authorization;
+      if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        return responseUtil.error(reply, 'Authentication required.', 401);
+      }
+
+      const token = authHeader.split(' ')[1];
+      const result = await authService.refreshSessionToken({
+        token,
+        fingerprint: (request.headers['x-fingerprint'] as string) || 'N/A',
+        ipAddress: request.ip,
+        userAgent: request.headers['user-agent'],
+      });
+
+      return responseUtil.success(reply, 'Session refreshed', result);
+    } catch (error: any) {
+      return responseUtil.error(reply, error.message || error.toString(), 401);
+    }
+  }
 }
 
 

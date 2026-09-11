@@ -12,7 +12,10 @@ export interface ServerConfig {
 
 export interface JWTConfig {
     secret: string | undefined;
+    /** Access JWT lifetime (e.g. "24h") */
     validity: string;
+    /** Sliding DB session lifetime; refresh allowed until this elapses (e.g. "30d") */
+    sessionValidity: string;
 }
 
 export interface DatabaseConfig {

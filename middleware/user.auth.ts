@@ -49,6 +49,10 @@ export const userAuth = async (request: FastifyRequest, reply: FastifyReply) => 
             return reply.status(401).send({ success: false, message: 'Session expired or invalid. Please log in again.' });
         }
 
+        if (activeSession.expiresAt && new Date(activeSession.expiresAt).getTime() < Date.now()) {
+            return reply.status(401).send({ success: false, message: 'Token has expired. Please refresh your session.' });
+        }
+
         if (!activeUser) {
             return reply.status(401).send({ success: false, message: 'The user account associated with this token no longer exists.' });
         }

@@ -67,6 +67,21 @@ export const authRouter: FastifyPluginAsync = async (fastify: FastifyInstance) =
     },
     authController.logout
   );
+
+  fastify.post(
+    '/refresh',
+    {
+      schema: {
+        tags: ['Auth'],
+        summary: 'Refresh access JWT for an active sliding session',
+        description:
+          'Accepts a valid or recently expired Bearer JWT and returns a new access token when the DB session is still ACTIVE.',
+        security: bearerSecurity,
+        response: { 200: ApiSuccessSchema, ...errorResponses },
+      },
+    },
+    authController.refresh
+  );
 };
 
 export default authRouter;

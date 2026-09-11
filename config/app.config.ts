@@ -51,7 +51,9 @@ const config: AppConfig = {
     // ==================================================
     jwt: {
         secret: process.env.JWT_SECRET,                            // Secret key for JWT signing
-        validity: process.env.JWT_VALIDITY || "24h",               // JWT token validity period
+        validity: process.env.JWT_VALIDITY || "24h",               // Access JWT lifetime
+        // How long an ACTIVE session can be silently refreshed without re-login
+        sessionValidity: process.env.SESSION_VALIDITY || "30d",
     },
 
     // ==================================================
