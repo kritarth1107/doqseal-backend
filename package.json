@@ -8,7 +8,8 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "lint": "tsc --noEmit",
-    "test": "echo \"No tests yet\" && exit 0",
+    "test": "vitest run",
+    "smoke-test": "ts-node scripts/smoke-test.ts",
     "seed:stories": "ts-node scripts/seed-stories.ts",
     "seed:assessments": "ts-node scripts/seed-assessments.ts",
     "seed:user-assessment": "ts-node scripts/seed-user-assessment.ts",
@@ -82,8 +83,11 @@
     "@types/morgan": "^1.9.10",
     "@types/node": "^22.14.1",
     "@types/uuid": "^10.0.0",
+    "@vitest/coverage-v8": "^5.0.2",
+    "mongodb-memory-server": "^11.3.0",
     "nodemon": "^3.1.9",
     "ts-node": "^10.9.2",
-    "typescript": "^5.8.3"
+    "typescript": "^5.8.3",
+    "vitest": "^5.0.2"
   }
 }
