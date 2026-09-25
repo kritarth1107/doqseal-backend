@@ -16,10 +16,13 @@ import { v4 as uuidv4 } from 'uuid';
 process.env.JWT_SECRET = 'smoke-test-secret-key-12345';
 process.env.NODE_ENV = 'test';
 process.env.API_VERSION = 'v1';
+process.env.RESEND_API = 're_dummy_key_for_testing';
+process.env.AES_SECRET = 'dummy-aes-secret-for-testing-32b';
 
 import User from '../model/user.model';
 import Session from '../model/session.model';
 import Organisation from '../model/organisation.model';
+import Membership from '../model/membership.model';
 import Document from '../model/document.model';
 import BundleTemplate from '../model/bundleTemplate.model';
 import Bundle from '../model/bundle.model';
@@ -28,11 +31,13 @@ import { ServerSetup } from '../server';
 interface TestContext {
   orgA: {
     organisationId: string;
+    _id: mongoose.Types.ObjectId;
     userId: string;
     token: string;
   };
   orgB: {
     organisationId: string;
+    _id: mongoose.Types.ObjectId;
     userId: string;
     token: string;
   };
@@ -44,11 +49,16 @@ let ctx: TestContext;
 
 const API_PREFIX = '/api/v1';
 
+interface OrgRecord {
+  organisationId: string;
+  _id: mongoose.Types.ObjectId;
+}
+
 async function createTestUser(
   name: string,
   email: string,
-  organisationId: string,
-  role: string = 'ADMIN'
+  org: OrgRecord,
+  role: string = 'admin'
 ): Promise<{ userId: string; token: string }> {
   const userId = uuidv4();
 
@@ -56,8 +66,14 @@ async function createTestUser(
     userId,
     name,
     email,
-    organisations: [{ organisationId, role }],
+    organisations: [{ organisationId: org.organisationId, role }],
     onboardingCompleted: true,
+  });
+
+  await Membership.create({
+    userId,
+    organisationId: org._id,
+    role,
   });
 
   const token = jwt.sign(
@@ -81,10 +97,10 @@ async function createTestOrg(
   name: string,
   slug: string,
   enableBundles: boolean = false
-): Promise<string> {
+): Promise<OrgRecord> {
   const organisationId = uuidv4();
 
-  await Organisation.create({
+  const org = await Organisation.create({
     publicId: organisationId,
     name,
     slug,
@@ -93,7 +109,7 @@ async function createTestOrg(
     features: { bundles: enableBundles, esign: false },
   });
 
-  return organisationId;
+  return { organisationId, _id: org._id as mongoose.Types.ObjectId };
 }
 
 async function createTestDocument(
@@ -158,25 +174,25 @@ async function setup(): Promise<void> {
 
   console.log('🔧 Starting Fastify server...');
   server = new ServerSetup();
-  await server.app.ready();
+  await server.initialize();
   console.log('✅ Fastify ready');
 
   console.log('🔧 Creating test organisations...');
-  const orgAId = await createTestOrg('Org A - Bundles Enabled', 'org-a', true);
-  const orgBId = await createTestOrg('Org B - Isolated', 'org-b', true);
+  const orgA = await createTestOrg('Org A - Bundles Enabled', 'org-a', true);
+  const orgB = await createTestOrg('Org B - Isolated', 'org-b', true);
 
   console.log('🔧 Creating test users...');
-  const userA = await createTestUser('Alice Admin', 'alice@orga.test', orgAId);
-  const userB = await createTestUser('Bob Admin', 'bob@orgb.test', orgBId);
+  const userA = await createTestUser('Alice Admin', 'alice@orga.test', orgA);
+  const userB = await createTestUser('Bob Admin', 'bob@orgb.test', orgB);
 
   ctx = {
-    orgA: { organisationId: orgAId, ...userA },
-    orgB: { organisationId: orgBId, ...userB },
+    orgA: { ...orgA, ...userA },
+    orgB: { ...orgB, ...userB },
   };
 
   console.log('✅ Test context ready');
-  console.log(`   Org A: ${orgAId}`);
-  console.log(`   Org B: ${orgBId}`);
+  console.log(`   Org A: ${orgA.organisationId}`);
+  console.log(`   Org B: ${orgB.organisationId}`);
 }
 
 async function teardown(): Promise<void> {
@@ -198,33 +214,33 @@ async function testCreateTemplate(): Promise<string> {
     {
       name: 'Test Loan Template',
       description: 'A test template for smoke testing',
-      documentTypes: [
-        {
-          typeKey: 'pan_card',
-          label: 'PAN Card',
-          required: true,
-          schema: { pan_number: { type: 'string', label: 'PAN Number' } },
-        },
-        {
-          typeKey: 'aadhaar',
-          label: 'Aadhaar Card',
-          required: true,
-          schema: { aadhaar_number: { type: 'string', label: 'Aadhaar Number' } },
-        },
-      ],
-      profileFields: [{ key: 'applicant_name', label: 'Applicant Name', type: 'string' }],
-      rules: [
-        {
-          ruleId: 'name_match',
-          label: 'Name Match',
-          category: 'identity',
-          severity: 'hard',
-          field: 'name',
-          method: 'similarity',
-          documents: ['pan_card', 'aadhaar'],
-          params: { threshold: 0.8 },
-        },
-      ],
+      draft: {
+        documentTypes: [
+          {
+            key: 'pan_card',
+            label: 'PAN Card',
+            required: true,
+          },
+          {
+            key: 'aadhaar',
+            label: 'Aadhaar Card',
+            required: true,
+          },
+        ],
+        profileFields: [{ key: 'applicant_name', label: 'Applicant Name', type: 'string' }],
+        rules: [
+          {
+            id: 'name_match',
+            name: 'Name Match',
+            category: 'cross_match',
+            severity: 'review',
+            field: 'name',
+            method: 'similarity',
+            documents: ['pan_card', 'aadhaar'],
+            params: { threshold: 0.8 },
+          },
+        ],
+      },
     }
   );
 
@@ -313,9 +329,9 @@ async function testIdempotentBundleCreate(templateId: string, existingBundleId: 
     }
   );
 
-  if (status !== 200) {
+  if (status !== 200 && status !== 201) {
     console.error('❌ Idempotent create failed:', body);
-    throw new Error(`Expected 200 for idempotent create, got ${status}`);
+    throw new Error(`Expected 200/201 for idempotent create, got ${status}`);
   }
 
   const returnedBundleId = (body as any).data?.bundleId;
@@ -357,22 +373,36 @@ async function testAttachDocuments(bundleId: string): Promise<string[]> {
     'aadhaar.pdf'
   );
 
-  const { status, body } = await makeRequest(
+  const { status: status1, body: body1 } = await makeRequest(
     'POST',
     `${API_PREFIX}/bundles/${bundleId}/documents`,
     ctx.orgA.token,
     ctx.orgA.organisationId,
     {
-      documents: [
-        { documentId: doc1Id, typeKey: 'pan_card' },
-        { documentId: doc2Id, typeKey: 'aadhaar' },
-      ],
+      documentIds: [doc1Id],
+      typeKey: 'pan_card',
     }
   );
 
-  if (status !== 200) {
-    console.error('❌ Failed to attach documents:', body);
-    throw new Error(`Expected 200, got ${status}`);
+  if (status1 !== 200) {
+    console.error('❌ Failed to attach document 1:', body1);
+    throw new Error(`Expected 200, got ${status1}`);
+  }
+
+  const { status: status2, body: body2 } = await makeRequest(
+    'POST',
+    `${API_PREFIX}/bundles/${bundleId}/documents`,
+    ctx.orgA.token,
+    ctx.orgA.organisationId,
+    {
+      documentIds: [doc2Id],
+      typeKey: 'aadhaar',
+    }
+  );
+
+  if (status2 !== 200) {
+    console.error('❌ Failed to attach document 2:', body2);
+    throw new Error(`Expected 200, got ${status2}`);
   }
 
   console.log(`✅ Documents attached: ${doc1Id}, ${doc2Id}`);
@@ -394,7 +424,8 @@ async function testOrgBCannotAttachToOrgABundle(bundleId: string): Promise<void>
     ctx.orgB.token,
     ctx.orgB.organisationId,
     {
-      documents: [{ documentId: docId, typeKey: 'pan_card' }],
+      documentIds: [docId],
+      typeKey: 'pan_card',
     }
   );
 

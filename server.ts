@@ -209,6 +209,16 @@ export class ServerSetup {
   }
 
   /**
+   * Initializes server without listening (for testing)
+   */
+  public async initialize(): Promise<void> {
+    await this.setupMiddleware();
+    await registerOpenApi(this.app);
+    this.setupRoutes();
+    await this.app.ready();
+  }
+
+  /**
    * Main entry point to start the server
    */
   public async start(): Promise<void> {
