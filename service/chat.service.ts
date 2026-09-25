@@ -15,8 +15,11 @@ export interface ChatResult {
   citations: Array<{
     documentId?: string;
     projectId?: string;
+    title?: string;
+    kind?: string;
     snippet?: string;
   }>;
+  thinking?: Array<{ title: string; detail?: string }>;
   mode: string;
 }
 
