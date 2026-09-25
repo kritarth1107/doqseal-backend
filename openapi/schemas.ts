@@ -191,7 +191,8 @@ export const AuditQuery = z.object({
 // ── Chat ──────────────────────────────────────────────
 export const ChatBody = z.object({
   message: z.string().min(1).max(8000),
-  organisationId: z.string(),
+  // Optional in body — dashboard sends the active org via x-organisation-id
+  organisationId: z.string().min(1).optional(),
   projectId: z.string().optional(),
 });
 
