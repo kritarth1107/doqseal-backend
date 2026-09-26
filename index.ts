@@ -197,6 +197,11 @@ class ServerManager {
       await this.server.start();
       console.log('✅ Server startup completed successfully');
 
+      // Bundle processing pipeline: off unless BUNDLE_PIPELINE_ENABLED=true.
+      // It never throws; on any problem the API keeps running without it.
+      const { startBundlePipeline } = await import('./service/bundle/pipeline/runtime');
+      await startBundlePipeline();
+
     } catch (error) {
       // ===== STARTUP ERROR HANDLING =====
       // Handle any errors during the startup process

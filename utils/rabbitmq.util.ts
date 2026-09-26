@@ -24,6 +24,16 @@ export class RabbitMQUtil {
   }
 
   /**
+   * Opens a separate channel on the shared connection. Features with their own
+   * queues use this so a channel-level error cannot close the main channel.
+   * Returns null when the broker connection is not available.
+   */
+  public static async createChannel(): Promise<any | null> {
+    if (!connection) return null;
+    return connection.createChannel();
+  }
+
+  /**
    * Lightweight broker liveness check for /health.
    * Does not return connection URIs or host details.
    */

@@ -12,6 +12,34 @@ export type BundleStatus =
 
 export type BundleSource = 'dashboard' | 'api' | 'request_link';
 
+export interface IBundlePipelineSummary {
+  evaluatedAt: Date;
+  documents: {
+    total: number;
+    inProgress: number;
+    classified: number;
+    needsReview: number;
+    failed: number;
+    unassigned: number;
+  };
+  checklist: Array<{
+    typeKey: string;
+    label: string;
+    required: boolean;
+    received: number;
+    minCount: number;
+    maxCount: number;
+    status: string;
+  }>;
+  missing: Array<{ typeKey: string; label: string; required: number; received: number }>;
+  conflicts: Array<{
+    field: string;
+    message: string;
+    severity: 'review';
+    values: Array<{ documentId: string; typeKey: string | null; value: string }>;
+  }>;
+}
+
 export interface IBundle extends Document {
   bundleId: string;
   organisationId: string;
@@ -31,6 +59,8 @@ export interface IBundle extends Document {
   tags: string[];
   dueAt?: Date | null;
   readOnly: boolean;
+  /** Latest completeness / consistency summary from the processing pipeline */
+  pipeline?: IBundlePipelineSummary | null;
   createdBy: string;
   deletedAt?: Date | null;
   createdAt: Date;
@@ -130,6 +160,10 @@ const BundleSchema: Schema = new Schema(
     readOnly: {
       type: Boolean,
       default: false,
+    },
+    pipeline: {
+      type: Schema.Types.Mixed,
+      default: undefined,
     },
     createdBy: {
       type: String,

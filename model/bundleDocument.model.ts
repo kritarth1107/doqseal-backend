@@ -2,6 +2,28 @@ import mongoose, { Schema, Document } from 'mongoose';
 
 export type AssignedBy = 'auto' | 'user';
 
+export type ClassificationStatus =
+  | 'pending'
+  | 'queued'
+  | 'classifying'
+  | 'classified'
+  | 'needs_review'
+  | 'failed';
+
+export interface IClassificationState {
+  status: ClassificationStatus;
+  taskId?: string | null;
+  attempts: number;
+  lastQueuedAt?: Date | null;
+  classifiedAt?: Date | null;
+  suggestedTypeKey?: string | null;
+  confidence?: number | null;
+  reasons: string[];
+  alternatives: Array<{ slot: string; confidence: number }>;
+  model?: string | null;
+  lastError?: string | null;
+}
+
 export interface IPageRange {
   start: number;
   end: number;
@@ -18,7 +40,32 @@ export interface IBundleDocument extends Document {
   addedBy: string;
   addedAt: Date;
   removedAt?: Date | null;
+  /** Set by the bundle processing pipeline; absent on links it never saw */
+  classification?: IClassificationState | null;
+  /** Identity fields returned by classification, used for consistency checks */
+  keyFields?: Record<string, string> | null;
 }
+
+const ClassificationStateSchema = new Schema(
+  {
+    status: {
+      type: String,
+      enum: ['pending', 'queued', 'classifying', 'classified', 'needs_review', 'failed'],
+      required: true,
+    },
+    taskId: { type: String, default: null },
+    attempts: { type: Number, default: 0 },
+    lastQueuedAt: { type: Date, default: null },
+    classifiedAt: { type: Date, default: null },
+    suggestedTypeKey: { type: String, default: null },
+    confidence: { type: Number, default: null },
+    reasons: { type: [String], default: [] },
+    alternatives: { type: [Schema.Types.Mixed], default: [] },
+    model: { type: String, default: null },
+    lastError: { type: String, default: null },
+  },
+  { _id: false }
+);
 
 const PageRangeSchema = new Schema(
   {
@@ -75,6 +122,14 @@ const BundleDocumentSchema: Schema = new Schema(
       type: Date,
       default: null,
       index: true,
+    },
+    classification: {
+      type: ClassificationStateSchema,
+      default: undefined,
+    },
+    keyFields: {
+      type: Schema.Types.Mixed,
+      default: undefined,
     },
   },
   {

@@ -10,6 +10,7 @@ import { visibilityFilter } from '../utils/visibility.util';
 import auditService from './audit.service';
 import quotaService from './quota.service';
 import documentService from './document.service';
+import { notifyDocumentsAdded, notifyBundleChanged } from './bundle/pipeline/runtime';
 import {
   NotFoundError,
   ForbiddenError,
@@ -406,6 +407,7 @@ export class BundleService {
 
     const existingLinks = await BundleDocument.find({
       bundleId: params.bundleId,
+      organisationId: params.organisationId,
       documentId: { $in: params.documentIds },
       removedAt: null,
     }).lean();
@@ -413,19 +415,28 @@ export class BundleService {
     const existingDocIds = new Set(existingLinks.map((l) => l.documentId));
     const newDocIds = params.documentIds.filter((id) => !existingDocIds.has(id));
 
+    // Upsert so a document removed earlier can be attached again (the link row
+    // is kept with removedAt set, and (bundleId, documentId) is unique).
     const operations = newDocIds.map((documentId) => ({
-      insertOne: {
-        document: {
+      updateOne: {
+        filter: {
           bundleId: params.bundleId,
           organisationId: params.organisationId,
           documentId,
-          assignedTypeKey: params.typeKey || null,
-          classificationConfidence: null,
-          assignedBy: params.typeKey ? 'user' : 'auto',
-          pageRange: null,
-          addedBy: params.userId,
-          addedAt: new Date(),
         },
+        update: {
+          $set: {
+            assignedTypeKey: params.typeKey || null,
+            classificationConfidence: null,
+            assignedBy: params.typeKey ? 'user' : 'auto',
+            pageRange: null,
+            addedBy: params.userId,
+            addedAt: new Date(),
+            removedAt: null,
+          },
+          $unset: { classification: '', keyFields: '' },
+        },
+        upsert: true,
       },
     }));
 
@@ -443,6 +454,8 @@ export class BundleService {
         metadata: { documentId, typeKey: params.typeKey },
       });
     }
+
+    await notifyDocumentsAdded(params.organisationId, params.bundleId, newDocIds);
 
     return {
       bundleId: params.bundleId,
@@ -496,6 +509,8 @@ export class BundleService {
       metadata: { documentId },
     });
 
+    await notifyBundleChanged(organisationId, bundleId, 'document_removed');
+
     return { removed: true, bundleId, documentId };
   }
 
@@ -544,6 +559,8 @@ export class BundleService {
         after: params.typeKey,
       },
     });
+
+    await notifyBundleChanged(params.organisationId, params.bundleId, 'document_reassigned');
 
     return {
       bundleId: params.bundleId,
@@ -614,6 +631,8 @@ export class BundleService {
         uploaded: true,
       },
     });
+
+    await notifyDocumentsAdded(organisationId, bundleId, [result.documentId]);
 
     return {
       bundleId,
