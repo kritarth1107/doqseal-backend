@@ -1,7 +1,7 @@
 /**
  * RabbitMQ wiring for the bundle pipeline. Uses its own channel so nothing
  * here can affect the extraction queue channel. Off unless
- * BUNDLE_PIPELINE_ENABLED=true and AI_ENGINE_SERVICE_TOKEN are set.
+ * BUNDLE_PIPELINE_ENABLED=true and AI_ENGINE_JWT_SECRET (or AI_ENGINE_SERVICE_TOKEN) are set.
  *
  * Queues (all durable):
  *   bundle.classify        tasks { v, taskId, organisationId, bundleId, documentId }

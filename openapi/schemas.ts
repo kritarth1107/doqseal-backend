@@ -196,6 +196,25 @@ export const ChatBody = z.object({
   projectId: z.string().optional(),
 });
 
+export const ChatStreamBody = z.object({
+  message: z.string().min(1).max(8000),
+  conversationId: z.string().min(1).max(100).optional(),
+  projectId: z.string().optional(),
+  // Ignored when the x-organisation-id header is present; membership is always checked.
+  organisationId: z.string().min(1).optional(),
+});
+
+export const ChatConversationParams = z.object({ id: z.string().min(1).max(100) });
+
+export const ChatConversationListQuery = z.object({
+  limit: z.string().regex(/^\d+$/).optional(),
+  before: z.string().optional(),
+});
+
+export const ChatConversationRenameBody = z.object({
+  title: z.string().min(1).max(200),
+});
+
 // ── Envelopes ─────────────────────────────────────────
 export const CreateEnvelopeBody = z.object({
   organisationId: z.string(),

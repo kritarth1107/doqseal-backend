@@ -12,7 +12,7 @@ The pipeline does nothing unless all of these are true:
 | Setting | Where | Value |
 | --- | --- | --- |
 | `BUNDLE_PIPELINE_ENABLED` | backend env | `true` |
-| `AI_ENGINE_SERVICE_TOKEN` | backend and ai-engine env | the same long random secret on both |
+| `AI_ENGINE_JWT_SECRET` (alias `AI_ENGINE_SERVICE_TOKEN`) | backend and ai-engine env | the same long random secret on both; signs short-lived service JWTs (also used by chat) |
 | `AI_ENGINE_URL` | backend env | already set (used by chat) |
 | `features.bundles` | organisation document | `true` |
 
@@ -67,6 +67,6 @@ actor `system`, and emitted on an in-process emitter:
 
 ## Organisation scoping
 
-Every query filters by `organisationId`. The ai-engine checks the service
-token, that the `X-Organisation-Id` header matches the body, and that the
-document belongs to that organisation before any model call.
+Every query filters by `organisationId`. The ai-engine verifies the
+short-lived `bundle:classify` service JWT, that its `org` claim matches the
+body, and that the document belongs to that organisation before any model call.

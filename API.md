@@ -12,4 +12,4 @@ Base: `http://localhost:3030/api/v1`
 | `/jobs` | Extraction job status |
 | `/api-wickets` | API keys |
 | `/envelopes` | E-sign |
-| `/chat` | Proxy to ai-engine (planned) |
+| `/chat` | Grounded document chat: `POST /`, `POST /stream` (SSE), `/conversations` (see docs/chat.md) |

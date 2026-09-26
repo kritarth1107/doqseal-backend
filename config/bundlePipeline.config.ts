@@ -1,8 +1,11 @@
 /**
  * Bundle processing pipeline settings. The pipeline is off unless
- * BUNDLE_PIPELINE_ENABLED=true and AI_ENGINE_SERVICE_TOKEN is set; per-org
+ * BUNDLE_PIPELINE_ENABLED=true and the ai-engine service secret
+ * (AI_ENGINE_JWT_SECRET, or its alias AI_ENGINE_SERVICE_TOKEN) is set; per-org
  * access is additionally gated by organisation.features.bundles.
  */
+import { aiEngineSecret } from '../utils/aiEngineToken.util';
+
 type Env = NodeJS.ProcessEnv;
 
 function numberFromEnv(env: Env, name: string): number {
@@ -25,6 +28,7 @@ function floatFromEnv(env: Env, name: string, fallback: number): number {
 
 export interface BundlePipelineConfig {
   enabled: boolean;
+  /** Secret used to sign short-lived ai-engine service tokens. */
   serviceToken: string;
   aiEngineUrl: string;
   queue: string;
@@ -42,7 +46,7 @@ export interface BundlePipelineConfig {
 
 export function loadBundlePipelineConfig(env: Env = process.env): BundlePipelineConfig {
   const queue = env.BUNDLE_CLASSIFY_QUEUE || 'bundle.classify';
-  const serviceToken = (env.AI_ENGINE_SERVICE_TOKEN || '').trim();
+  const serviceToken = aiEngineSecret(env);
   return {
     enabled: env.BUNDLE_PIPELINE_ENABLED === 'true' && serviceToken.length > 0,
     serviceToken,

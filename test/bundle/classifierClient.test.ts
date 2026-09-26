@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import axios from 'axios';
+import jwt from 'jsonwebtoken';
 import { ClassifierError, ClassifyRequest, createClassifierClient } from '../../service/bundle/pipeline/classifier.client';
 
 vi.mock('axios', () => ({ default: { post: vi.fn() } }));
@@ -14,18 +15,27 @@ const request: ClassifyRequest = {
   document: { documentType: null, text: 'hello', fields: {} },
 };
 
-const client = createClassifierClient({ baseUrl: 'http://ai-engine:3031', serviceToken: 'tok', timeoutMs: 1000 });
+const client = createClassifierClient({ baseUrl: 'http://ai-engine:3031', serviceToken: 'test-secret-0123456789abcdef-0123456789', timeoutMs: 1000 });
 
 describe('classifier client', () => {
 
-  it('sends the service token and organisation header and returns the result', async () => {
+  it('sends a short-lived bundle:classify token for the organisation and returns the result', async () => {
     const data = { ...request, slot: 'identity_proof', confidence: 0.9, reasons: [], alternatives: [], keyFields: {} };
     post.mockResolvedValue({ status: 200, data });
     await expect(client(request)).resolves.toEqual(data);
     const [url, body, opts] = post.mock.calls.at(-1) as any[];
     expect(url).toBe('http://ai-engine:3031/bundle/classify');
     expect(body).toBe(request);
-    expect(opts.headers).toEqual({ 'X-Service-Token': 'tok', 'X-Organisation-Id': 'org_a' });
+    expect(Object.keys(opts.headers)).toEqual(['Authorization']);
+    const token = String(opts.headers.Authorization).replace(/^Bearer /, '');
+    const claims = jwt.verify(token, 'test-secret-0123456789abcdef-0123456789', {
+      algorithms: ['HS256'],
+      issuer: 'doqseal-backend',
+      audience: 'doqseal-ai-engine',
+    }) as jwt.JwtPayload;
+    expect(claims).toMatchObject({ org: 'org_a', scope: 'bundle:classify', sub: 'bundle-pipeline' });
+    expect(claims.exp! - claims.iat!).toBeLessThanOrEqual(300);
+    expect(claims.jti).toBeTruthy();
     expect(opts.timeout).toBe(1000);
   });
 

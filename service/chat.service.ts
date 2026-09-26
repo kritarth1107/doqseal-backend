@@ -3,6 +3,7 @@ import config from '../config/app.config';
 import { assertUserInOrganisation } from '../utils/org-access.util';
 import auditService from './audit.service';
 import quotaService from './quota.service';
+import { aiEngineAuthHeaders } from '../utils/aiEngineToken.util';
 
 export interface ChatPayload {
   message: string;
@@ -52,7 +53,15 @@ export class ChatService {
           projectId: payload.projectId,
           userId,
         },
-        { timeout: 120_000 }
+        {
+          timeout: 120_000,
+          headers: aiEngineAuthHeaders({
+            organisationId: payload.organisationId,
+            userId,
+            projectId: payload.projectId,
+            scope: 'chat',
+          }),
+        }
       );
 
       const result = response.data;

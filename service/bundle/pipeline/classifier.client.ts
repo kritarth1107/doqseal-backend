@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { mintAiEngineToken } from '../../../utils/aiEngineToken.util';
 
 /** Message contract for POST {AI_ENGINE_URL}/bundle/classify (see docs/bundle-intelligence/PIPELINE.md). */
 export interface ClassifySlot {
@@ -47,18 +48,27 @@ export type ClassifyFn = (request: ClassifyRequest) => Promise<ClassifyResult>;
 
 export function createClassifierClient(options: {
   baseUrl: string;
+  /** Shared secret for signing a short-lived `bundle:classify` token per call. */
   serviceToken: string;
   timeoutMs: number;
 }): ClassifyFn {
   return async function classify(request: ClassifyRequest): Promise<ClassifyResult> {
+    let authorization: string;
+    try {
+      authorization = `Bearer ${mintAiEngineToken({
+        organisationId: request.organisationId,
+        userId: 'bundle-pipeline',
+        scope: 'bundle:classify',
+        secret: options.serviceToken,
+      })}`;
+    } catch {
+      throw new ClassifierError('ai-engine service secret is not configured', false);
+    }
     let response;
     try {
       response = await axios.post<ClassifyResult>(`${options.baseUrl}/bundle/classify`, request, {
         timeout: options.timeoutMs,
-        headers: {
-          'X-Service-Token': options.serviceToken,
-          'X-Organisation-Id': request.organisationId,
-        },
+        headers: { Authorization: authorization },
         validateStatus: () => true,
       });
     } catch {
