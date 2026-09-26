@@ -54,6 +54,12 @@ export interface IOrganisation extends Document {
     verifiedAt?: Date | null;
   }[];
 
+  /** Feature flags for progressive rollout */
+  features?: {
+    bundles?: boolean;
+    esign?: boolean;
+  };
+
   deletedAt?: Date;
   createdAt: Date;
   updatedAt: Date;
@@ -179,6 +185,13 @@ const OrganisationSchema: Schema = new Schema(
         },
       ],
       default: [],
+    },
+    features: {
+      type: {
+        bundles: { type: Boolean, default: false },
+        esign: { type: Boolean, default: false },
+      },
+      default: { bundles: false, esign: false },
     },
     deletedAt: {
       type: Date,

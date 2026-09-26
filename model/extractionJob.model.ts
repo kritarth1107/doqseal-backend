@@ -22,6 +22,14 @@ export interface IExtractionJob extends Document {
   userContext?: string | null;
   /** Prefer AI vision/LLM over OCR-only fast paths */
   forceAi?: boolean;
+  /** Bundle ID when extraction is triggered from a bundle */
+  bundleId?: string | null;
+  /** Document type key from bundle template */
+  typeKey?: string | null;
+  /** Schema fields to extract (from bundle template documentType) */
+  extractionSchema?: Record<string, unknown> | null;
+  /** Schema version for cache invalidation */
+  schemaVersion?: string | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -83,6 +91,23 @@ const ExtractionJobSchema: Schema = new Schema(
     forceAi: {
       type: Boolean,
       default: false,
+    },
+    bundleId: {
+      type: String,
+      default: null,
+      index: true,
+    },
+    typeKey: {
+      type: String,
+      default: null,
+    },
+    extractionSchema: {
+      type: Schema.Types.Mixed,
+      default: null,
+    },
+    schemaVersion: {
+      type: String,
+      default: null,
     },
   },
   {

@@ -1,12 +1,14 @@
+// Reference copy of the global error handler before typed AppError support
+// was added. Used only by tests to prove the current handler behaves
+// identically for every non-AppError error. Do not modify.
 import { FastifyRequest, FastifyReply, FastifyError } from 'fastify';
-import logger from '../utils/logger.util';
-import { isAppError } from '../utils/errors.util';
+import logger from '../../utils/logger.util';
 
 /**
  * Global Error Handler - Catches and standardizes all application errors
  * Automatically handles Zod validation errors and internal server faults
  */
-export const errorHandler = (error: FastifyError, request: FastifyRequest, reply: FastifyReply) => {
+export const legacyErrorHandler = (error: FastifyError, request: FastifyRequest, reply: FastifyReply) => {
     // Log the error for internal tracking
     logger.error('🔥 Global Error Caught', { 
         error: error.message, 
@@ -15,21 +17,6 @@ export const errorHandler = (error: FastifyError, request: FastifyRequest, reply
         method: request.method
     });
     
-    // Typed AppError instances (bundle features only). Everything else falls
-    // through to the standard handling below, which is unchanged.
-    if (isAppError(error)) {
-        const appStatus = error.statusCode;
-        return reply.status(appStatus).send({
-            success: false,
-            message: appStatus >= 500 ? 'Internal Server Error' : error.message,
-            code: error.code,
-            error: process.env.NODE_ENV === 'development' ? {
-                details: error.details,
-                stack: error.stack
-            } : undefined
-        });
-    }
-
     // Handle Zod Validation Errors (FST_ERR_VALIDATION)
     if (error.code === 'FST_ERR_VALIDATION') {
         return reply.status(400).send({
@@ -55,4 +42,4 @@ export const errorHandler = (error: FastifyError, request: FastifyRequest, reply
     });
 };
 
-export default errorHandler;
+export default legacyErrorHandler;
