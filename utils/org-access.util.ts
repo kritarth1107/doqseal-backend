@@ -1,6 +1,7 @@
 import User from '../model/user.model';
 import Organisation from '../model/organisation.model';
 import Membership from '../model/membership.model';
+import { readMembership, rememberMembership } from './auth-lookup-cache';
 
 export type OrgRole = 'owner' | 'admin' | 'member';
 
@@ -22,6 +23,11 @@ export async function assertOrgRole(
   organisationId: string,
   minRole: OrgRole
 ): Promise<{ role: OrgRole }> {
+  const cachedRole = readMembership(userId, organisationId);
+  if (cachedRole) {
+    return enforceRole(cachedRole, minRole);
+  }
+
   // User and organisation lookups are independent: run them together so the
   // check costs two round trips instead of three.
   const [user, organisation] = await Promise.all([
@@ -51,14 +57,20 @@ export async function assertOrgRole(
     throw new Error('You do not have access to this organisation');
   }
 
-  const userRank = ROLE_RANK[membership.role as OrgRole] ?? 0;
+  const role = membership.role as string;
+  rememberMembership(userId, organisationId, role);
+  return enforceRole(role, minRole);
+}
+
+function enforceRole(role: string, minRole: OrgRole): { role: OrgRole } {
+  const userRank = ROLE_RANK[role as OrgRole] ?? 0;
   const requiredRank = ROLE_RANK[minRole];
 
   if (userRank < requiredRank) {
     throw new Error(`Requires ${minRole} role or higher`);
   }
 
-  return { role: membership.role as OrgRole };
+  return { role: role as OrgRole };
 }
 
 export function resolveOrganisationId(

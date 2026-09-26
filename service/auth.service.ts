@@ -19,6 +19,7 @@ import demoService from './demo.service';
 import domainAccessService from './domainAccess.service';
 import { durationFromNow, parseDurationToMs } from '../utils/duration.util';
 import TokenBlacklist from '../utils/token-blacklist.util';
+import { forgetSession, forgetSessionsForUser } from '../utils/auth-lookup-cache';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const SESSION_FALLBACK_MS = 30 * DAY_MS;
@@ -451,6 +452,7 @@ export class AuthService {
         { userId, token, fingerprint, status: 'ACTIVE' },
         { status: 'REVOKED', updatedAt: new Date() }
       );
+      forgetSession(userId, token);
 
     } else if (type === 'all') {
       // Revoke all active sessions for this user
@@ -458,12 +460,14 @@ export class AuthService {
         { userId, status: 'ACTIVE' },
         { status: 'REVOKED', updatedAt: new Date() }
       );
+      forgetSessionsForUser(userId);
     } else if (type === 'specific' && fingerprint) {
       // Revoke a specific session by fingerprint
       await Session.updateOne(
         { userId, fingerprint, status: 'ACTIVE' },
         { status: 'REVOKED', updatedAt: new Date() }
       );
+      forgetSessionsForUser(userId);
     } else {
       throw new Error('Invalid logout parameters or missing required data');
     }

@@ -4,6 +4,7 @@ import config from '../config/app.config';
 import TokenBlacklist from '../utils/token-blacklist.util';
 import User from '../model/user.model';
 import Session from '../model/session.model';
+import { readSession, rememberSession } from '../utils/auth-lookup-cache';
 
 /**
  * Validates active JWT payloads dynamically as a Fastify Hook `preHandler`.
@@ -35,6 +36,13 @@ export const userAuth = async (request: FastifyRequest, reply: FastifyReply) => 
 
         if (!decoded || !decoded.userId) {
              return reply.status(401).send({ success: false, message: 'Invalid token payload structure.' });
+        }
+
+        const cached = readSession(decoded.userId, token);
+        if (cached) {
+            (request as any).user = cached.user;
+            (request as any).firebaseToken = decoded.firebaseToken;
+            return;
         }
 
         // 3. Parallelize high-fidelity Session and User lookups
@@ -70,6 +78,10 @@ export const userAuth = async (request: FastifyRequest, reply: FastifyReply) => 
         // 5. Expose user data to request context
         (request as any).user = activeUser;
         (request as any).firebaseToken = decoded.firebaseToken;
+        rememberSession(decoded.userId, token, {
+            user: activeUser as Record<string, unknown>,
+            expiresAtMs: activeSession.expiresAt ? new Date(activeSession.expiresAt).getTime() : null,
+        });
         
     } catch (error: any) {
         if (error.name === 'TokenExpiredError') {

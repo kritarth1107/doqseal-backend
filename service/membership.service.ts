@@ -5,6 +5,7 @@ import Membership from '../model/membership.model';
 import User from '../model/user.model';
 import EmailUtil from '../utils/email.util';
 import { assertOrgRole, OrgRole } from '../utils/org-access.util';
+import { forgetMembership } from '../utils/auth-lookup-cache';
 import auditService from './audit.service';
 import config from '../config/app.config';
 
@@ -296,6 +297,7 @@ export class MembershipService {
 
     membership.role = role;
     await membership.save();
+    forgetMembership(targetUserId, orgId);
 
     await User.updateOne(
       {
@@ -359,6 +361,7 @@ export class MembershipService {
 
     membership.deletedAt = new Date();
     await membership.save();
+    forgetMembership(targetUserId, orgId);
 
     await User.updateOne(
       { userId: targetUserId },
