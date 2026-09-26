@@ -14,6 +14,8 @@ import {
   BundleTemplateListQuery,
   PublishTemplateBody,
   CloneTemplateBody,
+  StarterKeyParams,
+  CreateFromStarterBody,
 } from '../openapi/bundle.schemas';
 import { z } from 'zod';
 
@@ -56,6 +58,38 @@ export const bundleTemplateRouter: FastifyPluginAsync = async (
       },
     },
     bundleTemplateController.list.bind(bundleTemplateController)
+  );
+
+  fastify.get(
+    '/starters',
+    {
+      schema: {
+        tags: ['Bundle Templates'],
+        summary: 'List starter templates',
+        description:
+          'Lists the built-in starter templates for every vertical, with the id of the organisation copy if one exists.',
+        security: bearerSecurity,
+        response: { 200: ApiSuccessSchema, ...errorResponses },
+      },
+    },
+    bundleTemplateController.listStarters.bind(bundleTemplateController)
+  );
+
+  fastify.post(
+    '/starters/:starterKey',
+    {
+      schema: {
+        tags: ['Bundle Templates'],
+        summary: 'Create a template from a starter',
+        description:
+          'Copies a starter template into the organisation and publishes version 1. Returns the existing copy when there is one.',
+        security: bearerSecurity,
+        params: StarterKeyParams,
+        body: CreateFromStarterBody,
+        response: { 200: ApiSuccessSchema, 201: ApiSuccessSchema, ...errorResponses },
+      },
+    },
+    bundleTemplateController.createFromStarter.bind(bundleTemplateController)
   );
 
   fastify.get(

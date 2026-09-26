@@ -10,7 +10,17 @@ import { visibilityFilter } from '../utils/visibility.util';
 import auditService from './audit.service';
 import quotaService from './quota.service';
 import documentService from './document.service';
-import { notifyDocumentsAdded, notifyBundleChanged } from './bundle/pipeline/runtime';
+import BundleExceptionAction from '../model/bundleExceptionAction.model';
+import AuditEvent from '../model/auditEvent.model';
+import User from '../model/user.model';
+import logger from '../utils/logger.util';
+import {
+  notifyDocumentsAdded,
+  notifyBundleChanged,
+  evaluateBundleNow,
+} from './bundle/pipeline/runtime';
+import { recordBundleEvent } from './bundle/pipeline/events';
+import { PIPELINE_RUN_ID, conflictKey } from './bundle/pipeline/conflicts';
 import {
   NotFoundError,
   ForbiddenError,
@@ -39,6 +49,7 @@ export interface ListBundlesParams {
   externalRef?: string;
   assignee?: string;
   updatedSince?: string;
+  q?: string;
   page?: number;
   limit?: number;
 }
@@ -79,7 +90,104 @@ export interface CreateBundleRunParams {
   trigger?: 'manual' | 'api';
 }
 
+export interface ConflictActionParams {
+  userId: string;
+  organisationId: string;
+  bundleId: string;
+  field: string;
+  valuesHash: string;
+  action: 'resolve' | 'dismiss' | 'reopen';
+  value?: string | null;
+  reason?: string | null;
+}
+
+export interface MarkReviewedParams {
+  userId: string;
+  organisationId: string;
+  bundleId: string;
+  note?: string | null;
+}
+
+/** Statuses a person can mark reviewed from (after a fresh evaluation). */
+const REVIEWABLE_STATUS = 'ready_to_run';
+
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function openConflictCount(pipeline: any): number {
+  return ((pipeline?.conflicts as any[]) || []).filter((c) => (c?.status ?? 'open') === 'open').length;
+}
+
+/** Compact progress numbers for list views, from the stored pipeline summary. */
+function progressOf(pipeline: any) {
+  if (!pipeline || !Array.isArray(pipeline.checklist)) return null;
+  const required = pipeline.checklist.filter((c: any) => c.required);
+  const met = required.filter((c: any) => c.status !== 'missing' && c.status !== 'insufficient');
+  const docs = pipeline.documents || {};
+  return {
+    requiredSlots: required.length,
+    requiredSlotsMet: met.length,
+    missing: Array.isArray(pipeline.missing) ? pipeline.missing.length : 0,
+    openConflicts: openConflictCount(pipeline),
+    needsAttention: (docs.needsReview || 0) + (docs.failed || 0),
+    inProgress: docs.inProgress || 0,
+    evaluatedAt: pipeline.evaluatedAt ?? null,
+  };
+}
+
+function documentTypesForClient(documentTypes: any[] | undefined) {
+  return (documentTypes || [])
+    .filter((d) => d && typeof d.key === 'string')
+    .map((d) => ({
+      key: d.key,
+      label: d.label || d.key,
+      required: d.required === true,
+      conditional: typeof d.required === 'string',
+      minCount: Number.isFinite(d.minCount) ? d.minCount : 1,
+      maxCount: Number.isFinite(d.maxCount) ? d.maxCount : 1,
+    }));
+}
+
 export class BundleService {
+  private async loadSnapshot(organisationId: string, templateId: string, version: number) {
+    const row = await BundleTemplateVersion.findOne({
+      templateId,
+      version,
+      $or: [{ organisationId }, { organisationId: null }],
+    }).lean();
+    return (row?.snapshot as any) ?? null;
+  }
+
+  /**
+   * A reviewed bundle that changes (documents added, removed or re-sorted) is
+   * no longer reviewed: it goes back to needs_review and is evaluated again.
+   */
+  private async clearReview(organisationId: string, bundleId: string, actorId: string, reason: string) {
+    const cleared = await Bundle.findOneAndUpdate(
+      {
+        bundleId,
+        organisationId,
+        deletedAt: null,
+        status: 'ready',
+        'review.reviewedAt': { $exists: true },
+      },
+      { $set: { status: 'needs_review' }, $unset: { review: '' } },
+      { new: true }
+    ).lean();
+    if (!cleared) return false;
+    await recordBundleEvent(`review_cleared:${bundleId}:${uuidv4()}`, {
+      type: 'bundle.review_cleared',
+      organisationId,
+      bundleId,
+      from: 'ready',
+      to: 'needs_review',
+      actorId,
+      data: { reason },
+    });
+    return true;
+  }
+
   public async createBundle(params: CreateBundleParams) {
     await assertOrgRole(params.userId, params.organisationId, 'member');
 
@@ -158,7 +266,7 @@ export class BundleService {
   ) {
     await assertOrgRole(userId, organisationId, 'member');
 
-    const bundle = await Bundle.findOne({
+    let bundle = await Bundle.findOne({
       bundleId,
       organisationId,
       deletedAt: null,
@@ -168,7 +276,23 @@ export class BundleService {
       throw new NotFoundError('Bundle', bundleId);
     }
 
-    const [documents, latestRun] = await Promise.all([
+    // Summaries from before conflict review (or none at all) are refreshed once.
+    const summary: any = (bundle as any).pipeline;
+    const stale =
+      !summary || ((summary.conflicts as any[]) || []).some((c) => !c || !c.valuesHash);
+    if (stale) {
+      try {
+        await evaluateBundleNow(organisationId, bundleId, 'read_refresh');
+        bundle = (await Bundle.findOne({ bundleId, organisationId, deletedAt: null }).lean()) || bundle;
+      } catch (err) {
+        logger.warn('bundle: could not refresh summary', {
+          bundleId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+
+    const [documents, latestRun, snapshot, template] = await Promise.all([
       BundleDocument.find({
         bundleId,
         organisationId,
@@ -177,18 +301,85 @@ export class BundleService {
       BundleRun.findOne({ bundleId, organisationId })
         .sort({ createdAt: -1 })
         .lean(),
+      this.loadSnapshot(organisationId, bundle.templateId, bundle.templateVersion),
+      BundleTemplate.findOne({
+        templateId: bundle.templateId,
+        $or: [{ organisationId }, { organisationId: null, isExample: true }],
+      })
+        .select('templateId name')
+        .lean(),
     ]);
+
+    const docRows = documents.length
+      ? await Document.find({
+          documentId: { $in: documents.map((d) => d.documentId) },
+          organisationId,
+        })
+          .select(
+            'documentId originalFilename displayTitle mimeType size status deletedAt uploadedBy sharedWithOrganisation'
+          )
+          .lean()
+      : [];
+    const docById = new Map(docRows.map((d: any) => [d.documentId, d]));
+
+    const review: any = (bundle as any).review;
+    let reviewer: { userId: string; name: string } | null = null;
+    if (review?.reviewedBy) {
+      const u = await User.findOne({ userId: review.reviewedBy }).select('userId name').lean();
+      reviewer = { userId: review.reviewedBy, name: (u as any)?.name || 'A team member' };
+    }
 
     return {
       ...this.toBundleResponse(bundle),
-      documents: documents.map((d) => ({
-        documentId: d.documentId,
-        typeKey: d.assignedTypeKey,
-        classificationConfidence: d.classificationConfidence,
-        assignedBy: d.assignedBy,
-        pageRange: d.pageRange,
-        addedAt: d.addedAt,
-      })),
+      templateName: (template as any)?.name ?? null,
+      template: {
+        templateId: bundle.templateId,
+        version: bundle.templateVersion,
+        name: (template as any)?.name ?? null,
+        documentTypes: documentTypesForClient(snapshot?.documentTypes),
+        profileFields: (snapshot?.profileFields || []).map((f: any) => ({
+          key: f.key,
+          label: f.label || f.key,
+          type: f.type || 'string',
+          options: Array.isArray(f.options) ? f.options : [],
+          required: f.required === true,
+        })),
+      },
+      pipeline: (bundle as any).pipeline ?? null,
+      progress: progressOf((bundle as any).pipeline),
+      review: review?.reviewedAt
+        ? { reviewedAt: review.reviewedAt, note: review.note ?? null, reviewer }
+        : null,
+      documents: documents.map((d) => {
+        const doc: any = docById.get(d.documentId);
+        const visible =
+          Boolean(doc) && (doc.sharedWithOrganisation !== false || doc.uploadedBy === userId);
+        const c: any = d.classification;
+        return {
+          documentId: d.documentId,
+          typeKey: d.assignedTypeKey,
+          classificationConfidence: d.classificationConfidence,
+          assignedBy: d.assignedBy,
+          pageRange: d.pageRange,
+          addedAt: d.addedAt,
+          filename: visible ? doc.displayTitle || doc.originalFilename : null,
+          mimeType: visible ? doc.mimeType : null,
+          size: visible ? doc.size : null,
+          extractionStatus: doc ? doc.status : null,
+          available: Boolean(doc) && !doc.deletedAt,
+          restricted: Boolean(doc) && !visible,
+          classification: c
+            ? {
+                status: c.status,
+                suggestedTypeKey: c.suggestedTypeKey ?? null,
+                confidence: c.confidence ?? null,
+                alternatives: Array.isArray(c.alternatives) ? c.alternatives : [],
+                reasons: Array.isArray(c.reasons) ? c.reasons : [],
+                lastError: c.lastError ?? null,
+              }
+            : null,
+        };
+      }),
       latestRun: latestRun
         ? {
             runId: latestRun.runId,
@@ -218,7 +409,17 @@ export class BundleService {
     }
 
     if (params.status) {
-      filter.status = params.status;
+      const statuses = params.status
+        .split(',')
+        .map((v) => v.trim())
+        .filter(Boolean);
+      filter.status = statuses.length > 1 ? { $in: statuses } : statuses[0];
+    }
+
+    const q = params.q?.trim();
+    if (q) {
+      const rx = new RegExp(escapeRegex(q.slice(0, 100)), 'i');
+      filter.$or = [{ name: rx }, { externalRef: rx }];
     }
 
     if (params.externalRef) {
@@ -260,10 +461,27 @@ export class BundleService {
 
     const countMap = new Map(docCounts.map((d) => [d._id, d.count]));
 
+    const templateIds = Array.from(new Set(bundles.map((b) => b.templateId)));
+    const templates = templateIds.length
+      ? await BundleTemplate.find({
+          templateId: { $in: templateIds },
+          $or: [
+            { organisationId: params.organisationId },
+            { organisationId: null, isExample: true },
+          ],
+        })
+          .select('templateId name')
+          .lean()
+      : [];
+    const templateNames = new Map(templates.map((t: any) => [t.templateId, t.name]));
+
     return {
       bundles: bundles.map((b) => ({
         ...this.toBundleListItem(b),
         documentCount: countMap.get(b.bundleId) || 0,
+        templateName: templateNames.get(b.templateId) ?? null,
+        progress: progressOf((b as any).pipeline),
+        reviewed: Boolean((b as any).review?.reviewedAt),
       })),
       pagination: {
         page,
@@ -455,6 +673,9 @@ export class BundleService {
       });
     }
 
+    if (newDocIds.length > 0) {
+      await this.clearReview(params.organisationId, params.bundleId, params.userId, 'documents_added');
+    }
     await notifyDocumentsAdded(params.organisationId, params.bundleId, newDocIds);
 
     return {
@@ -509,6 +730,7 @@ export class BundleService {
       metadata: { documentId },
     });
 
+    await this.clearReview(organisationId, bundleId, userId, 'document_removed');
     await notifyBundleChanged(organisationId, bundleId, 'document_removed');
 
     return { removed: true, bundleId, documentId };
@@ -542,9 +764,27 @@ export class BundleService {
       throw new NotFoundError('Bundle document', params.documentId);
     }
 
+    const snapshot = await this.loadSnapshot(
+      params.organisationId,
+      bundle.templateId,
+      bundle.templateVersion
+    );
+    const slotKeys = new Set(
+      ((snapshot?.documentTypes as any[]) || []).map((d) => d?.key).filter(Boolean)
+    );
+    if (snapshot && !slotKeys.has(params.typeKey)) {
+      throw new ValidationError(`Unknown slot for this bundle: ${params.typeKey}`);
+    }
+
     const before = link.assignedTypeKey;
     link.assignedTypeKey = params.typeKey;
     link.assignedBy = 'user';
+    // A person picking the slot settles a low-confidence or failed classification.
+    const cls: any = link.classification;
+    if (cls && (cls.status === 'needs_review' || cls.status === 'failed')) {
+      cls.status = 'classified';
+      link.markModified('classification');
+    }
     await link.save();
 
     await auditService.logEvent({
@@ -560,6 +800,9 @@ export class BundleService {
       },
     });
 
+    if (before !== params.typeKey) {
+      await this.clearReview(params.organisationId, params.bundleId, params.userId, 'document_reassigned');
+    }
     await notifyBundleChanged(params.organisationId, params.bundleId, 'document_reassigned');
 
     return {
@@ -632,6 +875,7 @@ export class BundleService {
       },
     });
 
+    await this.clearReview(organisationId, bundleId, userId, 'document_uploaded');
     await notifyDocumentsAdded(organisationId, bundleId, [result.documentId]);
 
     return {
@@ -776,6 +1020,266 @@ export class BundleService {
     }));
   }
 
+  /** Resolve (pick the correct value), dismiss (with a reason) or reopen a conflict. */
+  public async actOnConflict(params: ConflictActionParams) {
+    await assertOrgRole(
+      params.userId,
+      params.organisationId,
+      params.action === 'dismiss' ? 'admin' : 'member'
+    );
+
+    const bundle = await Bundle.findOne({
+      bundleId: params.bundleId,
+      organisationId: params.organisationId,
+      deletedAt: null,
+    }).lean();
+    if (!bundle) {
+      throw new NotFoundError('Bundle', params.bundleId);
+    }
+    if (bundle.readOnly) {
+      throw new ValidationError('Bundle is read-only');
+    }
+
+    const findConflict = (b: any) =>
+      ((b?.pipeline?.conflicts as any[]) || []).find(
+        (c) => c && c.field === params.field && c.valuesHash === params.valuesHash
+      );
+
+    let conflict = findConflict(bundle);
+    if (!conflict) {
+      await evaluateBundleNow(params.organisationId, params.bundleId, 'conflict_lookup');
+      const fresh = await Bundle.findOne({
+        bundleId: params.bundleId,
+        organisationId: params.organisationId,
+        deletedAt: null,
+      }).lean();
+      conflict = findConflict(fresh);
+    }
+    if (!conflict) {
+      throw new ConflictError('This conflict has changed. Refresh the bundle and try again.');
+    }
+
+    const key = conflictKey(params.field);
+    const reason = params.reason?.trim() || null;
+    let resolvedValue: string | null = null;
+
+    if (params.action === 'resolve') {
+      const wanted = params.value?.trim();
+      const match = (conflict.values as any[]).find(
+        (v) => String(v.value).trim().toLowerCase() === (wanted || '').toLowerCase()
+      );
+      if (!wanted || !match) {
+        throw new ValidationError('Pick one of the conflicting values as the correct one');
+      }
+      resolvedValue = String(match.value);
+    }
+    if (params.action === 'dismiss' && (!reason || reason.length < 3)) {
+      throw new ValidationError('A reason is required to dismiss a conflict');
+    }
+
+    // Only one live decision per conflict and values.
+    await BundleExceptionAction.updateMany(
+      {
+        organisationId: params.organisationId,
+        bundleId: params.bundleId,
+        runId: PIPELINE_RUN_ID,
+        exceptionKey: key,
+        valuesHash: params.valuesHash,
+        status: 'active',
+      },
+      { $set: { status: 'lapsed' } }
+    );
+
+    if (params.action !== 'reopen') {
+      const actionId = uuidv4();
+      await BundleExceptionAction.create({
+        actionId,
+        organisationId: params.organisationId,
+        bundleId: params.bundleId,
+        runId: PIPELINE_RUN_ID,
+        exceptionKey: key,
+        valuesHash: params.valuesHash,
+        type: params.action === 'dismiss' ? 'override' : 'resolve',
+        reason,
+        resolvedValue,
+        actorId: params.userId,
+        status: 'active',
+      });
+      await recordBundleEvent(`conflict:${actionId}`, {
+        type: params.action === 'dismiss' ? 'bundle.conflict_dismissed' : 'bundle.conflict_resolved',
+        organisationId: params.organisationId,
+        bundleId: params.bundleId,
+        actorId: params.userId,
+        data: { field: params.field, value: resolvedValue ?? undefined, reason: reason ?? undefined },
+      });
+    } else {
+      await auditService.logEvent({
+        actorId: params.userId,
+        organisationId: params.organisationId,
+        action: 'bundle.conflict_reopened',
+        resourceType: 'bundle',
+        resourceId: params.bundleId,
+        metadata: { field: params.field },
+      });
+      await this.clearReview(params.organisationId, params.bundleId, params.userId, 'conflict_reopened');
+    }
+
+    await evaluateBundleNow(params.organisationId, params.bundleId, `conflict_${params.action}`);
+    return this.getBundle(params.userId, params.organisationId, params.bundleId);
+  }
+
+  /**
+   * Marks the bundle reviewed. Allowed only when nothing is open: every
+   * required slot filled, no documents waiting for a slot and no open
+   * conflicts. The bundle moves to `ready`; this is a review record, not a
+   * decision on the customer or case.
+   */
+  public async markReviewed(params: MarkReviewedParams) {
+    await assertOrgRole(params.userId, params.organisationId, 'member');
+
+    const bundle = await Bundle.findOne({
+      bundleId: params.bundleId,
+      organisationId: params.organisationId,
+      deletedAt: null,
+    }).lean();
+    if (!bundle) {
+      throw new NotFoundError('Bundle', params.bundleId);
+    }
+    if (bundle.readOnly) {
+      throw new ValidationError('Bundle is read-only');
+    }
+    if (bundle.status === 'ready' && (bundle as any).review?.reviewedAt) {
+      return this.getBundle(params.userId, params.organisationId, params.bundleId);
+    }
+
+    await evaluateBundleNow(params.organisationId, params.bundleId, 'review_check');
+    const fresh: any = await Bundle.findOne({
+      bundleId: params.bundleId,
+      organisationId: params.organisationId,
+      deletedAt: null,
+    }).lean();
+    if (!fresh) {
+      throw new NotFoundError('Bundle', params.bundleId);
+    }
+
+    if (fresh.status !== REVIEWABLE_STATUS) {
+      const p = progressOf(fresh.pipeline);
+      const parts: string[] = [];
+      if (p?.inProgress) parts.push(`${p.inProgress} document(s) still being sorted`);
+      if (p?.missing) parts.push(`${p.missing} required item(s) missing`);
+      if (p?.openConflicts) parts.push(`${p.openConflicts} open conflict(s)`);
+      const docs = fresh.pipeline?.documents || {};
+      const waiting = Math.max(docs.unassigned || 0, (docs.needsReview || 0) + (docs.failed || 0));
+      if (waiting) parts.push(`${waiting} document(s) need a slot`);
+      const detail = parts.length ? `: ${parts.join(', ')}` : '';
+      throw new ConflictError(
+        parts.length
+          ? `This bundle still has open items${detail}.`
+          : `This bundle cannot be marked reviewed while its status is ${fresh.status}.`,
+        { status: fresh.status, progress: p }
+      );
+    }
+
+    const reviewedAt = new Date();
+    const note = params.note?.trim() || null;
+    const moved = await Bundle.findOneAndUpdate(
+      {
+        bundleId: params.bundleId,
+        organisationId: params.organisationId,
+        deletedAt: null,
+        status: REVIEWABLE_STATUS,
+      },
+      { $set: { status: 'ready', review: { reviewedBy: params.userId, reviewedAt, note } } },
+      { new: true }
+    ).lean();
+    if (!moved) {
+      throw new ConflictError('The bundle changed while you were reviewing it. Refresh and try again.');
+    }
+
+    await recordBundleEvent(`reviewed:${params.bundleId}:${uuidv4()}`, {
+      type: 'bundle.reviewed',
+      organisationId: params.organisationId,
+      bundleId: params.bundleId,
+      from: REVIEWABLE_STATUS,
+      to: 'ready',
+      actorId: params.userId,
+      data: { note: note ?? undefined },
+    });
+
+    return this.getBundle(params.userId, params.organisationId, params.bundleId);
+  }
+
+  /** Bundle timeline: pipeline events and people's actions, newest first. */
+  public async getTimeline(
+    userId: string,
+    organisationId: string,
+    bundleId: string,
+    limit = 100
+  ) {
+    await assertOrgRole(userId, organisationId, 'member');
+
+    const bundle = await Bundle.findOne({ bundleId, organisationId, deletedAt: null })
+      .select('bundleId')
+      .lean();
+    if (!bundle) {
+      throw new NotFoundError('Bundle', bundleId);
+    }
+
+    const events = await AuditEvent.find({
+      organisationId,
+      resourceType: 'bundle',
+      resourceId: bundleId,
+    })
+      .sort({ timestamp: -1 })
+      .limit(Math.min(Math.max(limit, 1), 200))
+      .lean();
+
+    const isSystem = (id: string | undefined) => !id || id === 'system' || id.startsWith('system:');
+    const actorIds = Array.from(new Set(events.map((e) => e.actorId).filter((id) => !isSystem(id))));
+    const users = actorIds.length
+      ? await User.find({ userId: { $in: actorIds } }).select('userId name').lean()
+      : [];
+    const names = new Map(users.map((u: any) => [u.userId, u.name]));
+
+    const pick = (m: any) => {
+      if (!m || typeof m !== 'object') return {};
+      const out: Record<string, unknown> = {};
+      for (const k of [
+        'documentId',
+        'typeKey',
+        'suggestedTypeKey',
+        'confidence',
+        'status',
+        'from',
+        'to',
+        'before',
+        'after',
+        'field',
+        'fields',
+        'value',
+        'reason',
+        'note',
+        'filename',
+        'missing',
+        'conflicts',
+        'runId',
+      ]) {
+        if (m[k] !== undefined && m[k] !== null) out[k] = m[k];
+      }
+      return out;
+    };
+
+    return events.map((e: any) => ({
+      id: String(e._id),
+      action: e.action,
+      timestamp: e.timestamp,
+      actor: isSystem(e.actorId)
+        ? { userId: null, name: 'DoqSeal', isSystem: true }
+        : { userId: e.actorId, name: names.get(e.actorId) || 'A team member', isSystem: false },
+      details: pick(e.metadata),
+    }));
+  }
+
   private toBundleResponse(bundle: IBundle | any) {
     return {
       bundleId: bundle.bundleId,
@@ -796,6 +1300,7 @@ export class BundleService {
       tags: bundle.tags,
       dueAt: bundle.dueAt,
       readOnly: bundle.readOnly,
+      reviewed: Boolean(bundle.review?.reviewedAt),
       createdBy: bundle.createdBy,
       createdAt: bundle.createdAt,
       updatedAt: bundle.updatedAt,

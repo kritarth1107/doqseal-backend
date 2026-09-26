@@ -7,7 +7,8 @@ bundles) are never changed by the pipeline.
 
 ## Switching it on
 
-The pipeline does nothing unless all of these are true:
+Automatic classification does nothing unless all of these are true (the
+completeness and status evaluation runs regardless, see REVIEW.md):
 
 | Setting | Where | Value |
 | --- | --- | --- |
@@ -64,6 +65,9 @@ actor `system`, and emitted on an in-process emitter:
 `bundle.document_queued`, `bundle.document_classified`,
 `bundle.document_classification_failed`, `bundle.status_changed`,
 `bundle.conflicts_detected`. Customer webhooks for these are not wired yet.
+Review decisions (resolve or dismiss a conflict, mark reviewed) are described
+in [REVIEW.md](REVIEW.md); an open conflict keeps the bundle in `needs_review`,
+a resolved or dismissed one does not.
 
 ## Organisation scoping
 

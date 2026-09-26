@@ -136,6 +136,8 @@ export interface IBundleTemplate extends Document {
   draft: IDraft;
   isExample: boolean;
   clonedFrom?: string | null;
+  /** Key of the starter template this was created from, if any */
+  starterKey?: string | null;
   createdBy: string;
   deletedAt?: Date | null;
   createdAt: Date;
@@ -364,6 +366,10 @@ const BundleTemplateSchema: Schema = new Schema(
       index: true,
     },
     clonedFrom: {
+      type: String,
+      default: null,
+    },
+    starterKey: {
       type: String,
       default: null,
     },

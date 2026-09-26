@@ -30,6 +30,32 @@ export function getBundlePipeline(): BundlePipeline | null {
   return pipeline;
 }
 
+let fallbackEvaluator: BundlePipeline | null = null;
+
+/**
+ * Completeness, conflict review and status need no model call, so they keep
+ * working when automatic classification is off: documents are then sorted
+ * into slots by people and the bundle status still follows.
+ */
+function getEvaluator(): BundlePipeline {
+  if (pipeline) return pipeline;
+  if (!fallbackEvaluator) {
+    fallbackEvaluator = new BundlePipeline({
+      config: loadBundlePipelineConfig(),
+      classify: async () => {
+        throw new Error('automatic classification is off');
+      },
+      publish: async () => false,
+    });
+  }
+  return fallbackEvaluator;
+}
+
+/** Re-evaluates a bundle now and returns the result. Throws on failure. */
+export async function evaluateBundleNow(organisationId: string, bundleId: string, reason: string) {
+  return getEvaluator().evaluateBundle(organisationId, bundleId, `${reason}:${randomUUID()}`);
+}
+
 export async function assertPipelineQueues(ch: any, config: BundlePipelineConfig): Promise<void> {
   await ch.assertQueue(config.deadQueue, { durable: true });
   await ch.assertQueue(config.queue, {
@@ -190,18 +216,22 @@ export async function stopBundlePipeline(): Promise<void> {
 }
 
 /**
- * Hooks for the bundle service. They do nothing when the pipeline is off and
- * never throw, so attaching or editing documents behaves exactly as before.
+ * Hooks for the bundle service. They never throw. With the pipeline off they
+ * only re-evaluate completeness and status (no classification).
  */
 export async function notifyDocumentsAdded(
   organisationId: string,
   bundleId: string,
   documentIds: string[]
 ): Promise<void> {
+  if (documentIds.length === 0) return;
   const current = pipeline;
-  if (!current || documentIds.length === 0) return;
   try {
-    await current.enqueueDocuments(organisationId, bundleId, documentIds);
+    if (current) {
+      await current.enqueueDocuments(organisationId, bundleId, documentIds);
+    } else {
+      await evaluateBundleNow(organisationId, bundleId, 'documents_added');
+    }
   } catch (err) {
     logger.error('bundle pipeline: enqueue failed', { error: errMessage(err), bundleId });
   }
@@ -212,10 +242,8 @@ export async function notifyBundleChanged(
   bundleId: string,
   reason: string
 ): Promise<void> {
-  const current = pipeline;
-  if (!current) return;
   try {
-    await current.evaluateBundle(organisationId, bundleId, `${reason}:${randomUUID()}`);
+    await evaluateBundleNow(organisationId, bundleId, reason);
   } catch (err) {
     logger.error('bundle pipeline: evaluation failed', { error: errMessage(err), bundleId });
   }

@@ -18,6 +18,7 @@ import type { BundlePipelineConfig } from '../../../config/bundlePipeline.config
 import { ClassifierError, ClassifyFn, ClassifyResult, ClassifySlot } from './classifier.client';
 import { checkConsistency } from './consistency';
 import { recordBundleEvent } from './events';
+import { annotateConflicts } from './conflicts';
 
 export interface ClassifyTaskMessage {
   v: 1;
@@ -449,9 +450,9 @@ export class BundlePipeline {
     bundleId: string,
     trigger: string,
     depth = 0
-  ): Promise<{ status: BundleStatus | null; changed: boolean }> {
+  ): Promise<{ status: BundleStatus | null; changed: boolean; target: BundleStatus | null }> {
     const bundle = await Bundle.findOne({ bundleId, organisationId, deletedAt: null }).lean();
-    if (!bundle) return { status: null, changed: false };
+    if (!bundle) return { status: null, changed: false, target: null };
 
     const snapshot = await this.loadSnapshot(organisationId, bundle.templateId, bundle.templateVersion);
     const docTypes = documentTypesToConfig((snapshot?.documentTypes as any[]) || []);
@@ -466,7 +467,7 @@ export class BundlePipeline {
       .filter((c) => c.status === 'missing' || c.status === 'insufficient')
       .map((c) => ({ typeKey: c.typeKey, label: c.label, required: c.minCount, received: c.received }));
 
-    const conflicts = checkConsistency(
+    const detected = checkConsistency(
       links
         .filter((l) => l.keyFields && typeof l.keyFields === 'object')
         .map((l) => ({
@@ -475,6 +476,8 @@ export class BundlePipeline {
           keyFields: l.keyFields as Record<string, string>,
         }))
     );
+    const conflicts = await annotateConflicts(organisationId, bundleId, detected);
+    const openConflicts = conflicts.filter((c) => c.status === 'open');
 
     const statusOf = (l: any): ClassificationStatus | null => l.classification?.status ?? null;
     const counts = {
@@ -486,10 +489,20 @@ export class BundlePipeline {
       unassigned: links.filter((l) => !l.assignedTypeKey).length,
     };
 
+    // Documents that are not being classified and still have no slot need a person.
+    const idleUnassigned = links.filter(
+      (l) => !l.assignedTypeKey && !IN_PROGRESS.includes(statusOf(l) as ClassificationStatus)
+    ).length;
+
     let target: BundleStatus;
     if (counts.total === 0 || counts.inProgress > 0 || missing.length > 0) {
       target = 'collecting';
-    } else if (conflicts.length > 0 || counts.needsReview > 0 || counts.failed > 0) {
+    } else if (
+      openConflicts.length > 0 ||
+      counts.needsReview > 0 ||
+      counts.failed > 0 ||
+      idleUnassigned > 0
+    ) {
       target = 'needs_review';
     } else {
       target = 'ready_to_run';
@@ -522,7 +535,7 @@ export class BundlePipeline {
       if (!moved) {
         // Someone else changed the status in between; evaluate again once.
         if (depth < 1) return this.evaluateBundle(organisationId, bundleId, trigger, depth + 1);
-        return { status: null, changed: false };
+        return { status: null, changed: false, target };
       }
       await recordBundleEvent(`status:${bundleId}:${trigger}:${from}->${target}`, {
         type: 'bundle.status_changed',
@@ -533,7 +546,7 @@ export class BundlePipeline {
         data: {
           trigger,
           missing: missing.map((m) => m.typeKey),
-          conflicts: conflicts.map((c) => c.field),
+          conflicts: openConflicts.map((c) => c.field),
         },
       });
     }
@@ -547,7 +560,7 @@ export class BundlePipeline {
       });
     }
 
-    return { status: canMove ? target : from, changed: canMove };
+    return { status: canMove ? target : from, changed: canMove, target };
   }
 
   // ---------------------------------------------------------------------------

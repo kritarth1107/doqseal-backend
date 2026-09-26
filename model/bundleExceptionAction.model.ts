@@ -13,6 +13,8 @@ export interface IBundleExceptionAction extends Document {
   valuesHash: string;
   type: ActionType;
   reason?: string | null;
+  /** The value a person picked as correct when resolving a conflict */
+  resolvedValue?: string | null;
   actorId: string;
   checkerId?: string | null;
   status: ActionStatus;
@@ -57,6 +59,10 @@ const BundleExceptionActionSchema: Schema = new Schema(
       required: true,
     },
     reason: {
+      type: String,
+      default: null,
+    },
+    resolvedValue: {
       type: String,
       default: null,
     },

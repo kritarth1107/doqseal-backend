@@ -18,6 +18,9 @@ import {
   UpdateBundleDocumentBody,
   CreateBundleRunBody,
   BundleRunIdParams,
+  ConflictActionBody,
+  MarkReviewedBody,
+  BundleTimelineQuery,
 } from '../openapi/bundle.schemas';
 
 export const bundleRouter: FastifyPluginAsync = async (
@@ -213,6 +216,56 @@ export const bundleRouter: FastifyPluginAsync = async (
       },
     },
     bundleController.getRun.bind(bundleController)
+  );
+
+  fastify.post(
+    '/:bundleId/conflicts',
+    {
+      schema: {
+        tags: ['Bundles'],
+        summary: 'Resolve, dismiss or reopen a conflict',
+        description:
+          'Records a review decision on a cross-document conflict, identified by field and valuesHash from the bundle summary. Resolve needs the correct value; dismiss needs a reason and the admin role. A decision lapses when the values change.',
+        security: bearerSecurity,
+        params: BundleIdParams,
+        body: ConflictActionBody,
+        response: { 200: ApiSuccessSchema, ...errorResponses },
+      },
+    },
+    bundleController.actOnConflict.bind(bundleController)
+  );
+
+  fastify.post(
+    '/:bundleId/review',
+    {
+      schema: {
+        tags: ['Bundles'],
+        summary: 'Mark a bundle reviewed',
+        description:
+          'Moves the bundle to ready once nothing is open (409 otherwise). Cleared automatically when documents change.',
+        security: bearerSecurity,
+        params: BundleIdParams,
+        body: MarkReviewedBody,
+        response: { 200: ApiSuccessSchema, ...errorResponses },
+      },
+    },
+    bundleController.markReviewed.bind(bundleController)
+  );
+
+  fastify.get(
+    '/:bundleId/timeline',
+    {
+      schema: {
+        tags: ['Bundles'],
+        summary: 'Bundle timeline',
+        description: 'Pipeline events and user actions for the bundle, newest first.',
+        security: bearerSecurity,
+        params: BundleIdParams,
+        querystring: BundleTimelineQuery,
+        response: { 200: ApiSuccessSchema, ...errorResponses },
+      },
+    },
+    bundleController.timeline.bind(bundleController)
   );
 };
 

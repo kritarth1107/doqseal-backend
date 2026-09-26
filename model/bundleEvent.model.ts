@@ -5,7 +5,11 @@ export type BundleEventType =
   | 'bundle.document_classified'
   | 'bundle.document_classification_failed'
   | 'bundle.status_changed'
-  | 'bundle.conflicts_detected';
+  | 'bundle.conflicts_detected'
+  | 'bundle.conflict_resolved'
+  | 'bundle.conflict_dismissed'
+  | 'bundle.reviewed'
+  | 'bundle.review_cleared';
 
 /**
  * Timeline of bundle pipeline events. `dedupeKey` is unique so retried or

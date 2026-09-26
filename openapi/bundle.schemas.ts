@@ -168,6 +168,17 @@ export const CloneTemplateBody = z.object({
   projectId: z.string().optional().nullable(),
 });
 
+export const StarterKeyParams = z.object({
+  starterKey: z.string().min(1).max(80).regex(/^[a-z][a-z0-9_]*$/),
+});
+
+export const CreateFromStarterBody = z
+  .object({
+    name: z.string().min(1).max(200).optional().nullable(),
+    projectId: z.string().optional().nullable(),
+  })
+  .optional();
+
 // ── Bundle API ─────────────────────────────────────────
 export const CreateBundleBody = z.object({
   templateId: z.string().min(1),
@@ -199,6 +210,8 @@ export const BundleListQuery = z.object({
   externalRef: z.string().optional(),
   assignee: z.string().optional(),
   updatedSince: z.string().optional(),
+  /** Case-insensitive search on name and externalRef */
+  q: z.string().max(100).optional(),
   page: z.string().optional(),
   limit: z.string().optional(),
 });
@@ -247,4 +260,24 @@ export const ResolveExceptionBody = z.object({
 
 export const OverrideExceptionBody = z.object({
   reason: z.string().min(1).max(2000),
+});
+
+// ── Review ─────────────────────────────────────────────
+export const ConflictActionBody = z.object({
+  field: z.string().min(1).max(60),
+  valuesHash: z.string().min(1).max(128),
+  action: z.enum(['resolve', 'dismiss', 'reopen']),
+  /** The value that is correct (resolve only); must be one of the conflicting values */
+  value: z.string().max(300).optional().nullable(),
+  reason: z.string().max(2000).optional().nullable(),
+});
+
+export const MarkReviewedBody = z
+  .object({
+    note: z.string().max(2000).optional().nullable(),
+  })
+  .optional();
+
+export const BundleTimelineQuery = z.object({
+  limit: z.string().regex(/^\d+$/).optional(),
 });

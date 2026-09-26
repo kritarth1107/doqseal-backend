@@ -3,6 +3,7 @@ import bundleTemplateService from '../service/bundleTemplate.service';
 import responseUtil from '../utils/response.util';
 import { resolveOrganisationId } from '../utils/org-access.util';
 import { isAppError } from '../utils/errors.util';
+import { sendBundleError } from '../utils/bundleHttp.util';
 
 export class BundleTemplateController {
   public async create(request: FastifyRequest, reply: FastifyReply) {
@@ -253,6 +254,41 @@ export class BundleTemplateController {
         return responseUtil.error(reply, error.message, error.statusCode);
       }
       return responseUtil.error(reply, error.message || 'Failed to clone template', 500);
+    }
+  }
+
+  public async listStarters(request: FastifyRequest, reply: FastifyReply) {
+    const sessionUser = (request as any).user;
+    try {
+      const organisationId = resolveOrganisationId(request);
+      const result = await bundleTemplateService.listStarters(sessionUser.userId, organisationId);
+      return responseUtil.success(reply, 'Starter templates retrieved successfully', result);
+    } catch (error: unknown) {
+      return sendBundleError(reply, error, 'Failed to list starter templates');
+    }
+  }
+
+  public async createFromStarter(request: FastifyRequest, reply: FastifyReply) {
+    const sessionUser = (request as any).user;
+    const { starterKey } = request.params as { starterKey: string };
+    const body = (request.body || {}) as { name?: string | null; projectId?: string | null };
+    try {
+      const organisationId = resolveOrganisationId(request);
+      const result = await bundleTemplateService.createFromStarter({
+        userId: sessionUser.userId,
+        organisationId,
+        starterKey,
+        name: body.name,
+        projectId: body.projectId,
+      });
+      return responseUtil.success(
+        reply,
+        result.created ? 'Template created from starter' : 'Template already exists for this starter',
+        result,
+        result.created ? 201 : 200
+      );
+    } catch (error: unknown) {
+      return sendBundleError(reply, error, 'Failed to create template from starter');
     }
   }
 }

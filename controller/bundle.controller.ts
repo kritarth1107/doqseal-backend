@@ -3,6 +3,7 @@ import bundleService from '../service/bundle.service';
 import responseUtil from '../utils/response.util';
 import { resolveOrganisationId } from '../utils/org-access.util';
 import { isAppError } from '../utils/errors.util';
+import { sendBundleError } from '../utils/bundleHttp.util';
 
 export class BundleController {
   public async create(request: FastifyRequest, reply: FastifyReply) {
@@ -72,6 +73,7 @@ export class BundleController {
       externalRef?: string;
       assignee?: string;
       updatedSince?: string;
+      q?: string;
       page?: string;
       limit?: string;
     };
@@ -88,6 +90,7 @@ export class BundleController {
         externalRef: query.externalRef,
         assignee: query.assignee,
         updatedSince: query.updatedSince,
+        q: query.q,
         page: query.page ? parseInt(query.page, 10) : undefined,
         limit: query.limit ? parseInt(query.limit, 10) : undefined,
       });
@@ -366,6 +369,70 @@ export class BundleController {
         return responseUtil.error(reply, error.message, error.statusCode);
       }
       return responseUtil.error(reply, error.message || 'Failed to retrieve run', 500);
+    }
+  }
+
+  public async actOnConflict(request: FastifyRequest, reply: FastifyReply) {
+    const sessionUser = (request as any).user;
+    const { bundleId } = request.params as { bundleId: string };
+    const body = request.body as {
+      field: string;
+      valuesHash: string;
+      action: 'resolve' | 'dismiss' | 'reopen';
+      value?: string | null;
+      reason?: string | null;
+    };
+    try {
+      const organisationId = resolveOrganisationId(request);
+      const result = await bundleService.actOnConflict({
+        userId: sessionUser.userId,
+        organisationId,
+        bundleId,
+        field: body.field,
+        valuesHash: body.valuesHash,
+        action: body.action,
+        value: body.value,
+        reason: body.reason,
+      });
+      return responseUtil.success(reply, 'Conflict updated', result);
+    } catch (error: unknown) {
+      return sendBundleError(reply, error, 'Failed to update conflict');
+    }
+  }
+
+  public async markReviewed(request: FastifyRequest, reply: FastifyReply) {
+    const sessionUser = (request as any).user;
+    const { bundleId } = request.params as { bundleId: string };
+    const body = (request.body || {}) as { note?: string | null };
+    try {
+      const organisationId = resolveOrganisationId(request);
+      const result = await bundleService.markReviewed({
+        userId: sessionUser.userId,
+        organisationId,
+        bundleId,
+        note: body.note,
+      });
+      return responseUtil.success(reply, 'Bundle marked reviewed', result);
+    } catch (error: unknown) {
+      return sendBundleError(reply, error, 'Failed to mark bundle reviewed');
+    }
+  }
+
+  public async timeline(request: FastifyRequest, reply: FastifyReply) {
+    const sessionUser = (request as any).user;
+    const { bundleId } = request.params as { bundleId: string };
+    const { limit } = (request.query || {}) as { limit?: string };
+    try {
+      const organisationId = resolveOrganisationId(request);
+      const result = await bundleService.getTimeline(
+        sessionUser.userId,
+        organisationId,
+        bundleId,
+        limit ? parseInt(limit, 10) : undefined
+      );
+      return responseUtil.success(reply, 'Timeline retrieved successfully', result);
+    } catch (error: unknown) {
+      return sendBundleError(reply, error, 'Failed to load timeline');
     }
   }
 }

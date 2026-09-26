@@ -13,6 +13,8 @@ export interface BundlePipelineEvent {
   from?: string | null;
   to?: string | null;
   data?: Record<string, unknown>;
+  /** Person who caused the event; pipeline events are recorded as 'system' */
+  actorId?: string;
 }
 
 /**
@@ -55,7 +57,7 @@ export async function recordBundleEvent(
 
   try {
     await auditService.logEvent({
-      actorId: 'system',
+      actorId: event.actorId ?? 'system',
       organisationId: event.organisationId,
       action: event.type,
       resourceType: 'bundle',

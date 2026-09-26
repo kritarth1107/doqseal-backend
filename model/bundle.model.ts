@@ -37,7 +37,24 @@ export interface IBundlePipelineSummary {
     message: string;
     severity: 'review';
     values: Array<{ documentId: string; typeKey: string | null; value: string }>;
+    /** Review state (absent on summaries written before conflict review existed) */
+    key?: string;
+    valuesHash?: string;
+    status?: 'open' | 'resolved' | 'dismissed';
+    resolution?: {
+      action: 'resolve' | 'dismiss';
+      actorId: string;
+      at: Date;
+      value?: string | null;
+      reason?: string | null;
+    } | null;
   }>;
+}
+
+export interface IBundleReview {
+  reviewedBy: string;
+  reviewedAt: Date;
+  note?: string | null;
 }
 
 export interface IBundle extends Document {
@@ -61,6 +78,8 @@ export interface IBundle extends Document {
   readOnly: boolean;
   /** Latest completeness / consistency summary from the processing pipeline */
   pipeline?: IBundlePipelineSummary | null;
+  /** Set when a person marks the bundle reviewed; cleared when it changes */
+  review?: IBundleReview | null;
   createdBy: string;
   deletedAt?: Date | null;
   createdAt: Date;
@@ -162,6 +181,10 @@ const BundleSchema: Schema = new Schema(
       default: false,
     },
     pipeline: {
+      type: Schema.Types.Mixed,
+      default: undefined,
+    },
+    review: {
       type: Schema.Types.Mixed,
       default: undefined,
     },

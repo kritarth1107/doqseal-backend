@@ -34,6 +34,7 @@ export class UserService {
             name: org.name,
             role: userOrg.role,
             logoUrl: org.logoUrl || null,
+            features: { bundles: (org as any).features?.bundles === true },
           });
         }
       }

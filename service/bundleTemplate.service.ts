@@ -5,6 +5,10 @@ import { assertOrgRole, OrgRole } from '../utils/org-access.util';
 import { visibilityFilter } from '../utils/visibility.util';
 import auditService from './audit.service';
 import {
+  BUNDLE_STARTER_TEMPLATES,
+  BUNDLE_STARTER_VERTICAL_LABELS,
+} from '../constants/bundleStarterTemplates';
+import {
   NotFoundError,
   ForbiddenError,
   ValidationError,
@@ -55,7 +59,123 @@ export interface CloneTemplateParams {
   projectId?: string | null;
 }
 
+export interface CreateFromStarterParams {
+  userId: string;
+  organisationId: string;
+  starterKey: string;
+  name?: string | null;
+  projectId?: string | null;
+}
+
 export class BundleTemplateService {
+  /** Built-in starter templates, one or more per vertical. */
+  public async listStarters(userId: string, organisationId: string) {
+    await assertOrgRole(userId, organisationId, 'member');
+
+    const existing = await BundleTemplate.find({
+      organisationId,
+      starterKey: { $in: BUNDLE_STARTER_TEMPLATES.map((t) => t.key) },
+      deletedAt: null,
+    })
+      .select('templateId starterKey latestVersion status')
+      .lean();
+    const byKey = new Map(existing.map((t: any) => [t.starterKey, t]));
+
+    return BUNDLE_STARTER_TEMPLATES.map((t) => {
+      const copy: any = byKey.get(t.key);
+      return {
+        key: t.key,
+        vertical: t.vertical,
+        verticalLabel: BUNDLE_STARTER_VERTICAL_LABELS[t.vertical],
+        name: t.name,
+        description: t.description,
+        documentTypes: t.documentTypes.map((d: any) => ({
+          key: d.key,
+          label: d.label,
+          required: d.required === true,
+          conditional: typeof d.required === 'string',
+          minCount: d.minCount ?? 1,
+        })),
+        profileFieldCount: t.profileFields.length,
+        ruleCount: t.rules.length,
+        templateId: copy?.templateId ?? null,
+        templateStatus: copy?.status ?? null,
+      };
+    });
+  }
+
+  /**
+   * Copies a starter into the organisation and publishes version 1 so bundles
+   * can be created from it straight away. Returns the existing copy if the
+   * organisation already has one for this starter.
+   */
+  public async createFromStarter(params: CreateFromStarterParams) {
+    await assertOrgRole(params.userId, params.organisationId, 'member');
+
+    const starter = BUNDLE_STARTER_TEMPLATES.find((t) => t.key === params.starterKey);
+    if (!starter) {
+      throw new NotFoundError('Starter template', params.starterKey);
+    }
+
+    const existing = await BundleTemplate.findOne({
+      organisationId: params.organisationId,
+      starterKey: starter.key,
+      deletedAt: null,
+      latestVersion: { $gt: 0 },
+    }).lean();
+    if (existing) {
+      return { ...this.toTemplateResponse(existing), created: false };
+    }
+
+    const templateId = uuidv4();
+    const draft: IDraft = {
+      instructions: '',
+      documentTypes: starter.documentTypes,
+      profileFields: starter.profileFields,
+      rules: starter.rules.map((r: any) => ({ ...r, origin: 'manual' })),
+      outputSchema: starter.outputSchema,
+      automation: undefined,
+      fieldMapping: {},
+    } as IDraft;
+
+    this.validateRules(draft.rules || []);
+
+    const template = await BundleTemplate.create({
+      templateId,
+      organisationId: params.organisationId,
+      projectId: params.projectId || null,
+      name: params.name?.trim() || starter.name,
+      description: starter.description,
+      status: 'published',
+      latestVersion: 1,
+      draft,
+      isExample: false,
+      starterKey: starter.key,
+      createdBy: params.userId,
+    });
+
+    await BundleTemplateVersion.create({
+      templateId,
+      organisationId: params.organisationId,
+      version: 1,
+      snapshot: draft,
+      compiledFrom: null,
+      publishedBy: params.userId,
+      publishedAt: new Date(),
+    });
+
+    await auditService.logEvent({
+      actorId: params.userId,
+      organisationId: params.organisationId,
+      action: 'template.create_from_starter',
+      resourceType: 'bundle_template',
+      resourceId: templateId,
+      metadata: { starterKey: starter.key, version: 1 },
+    });
+
+    return { ...this.toTemplateResponse(template), created: true };
+  }
+
   public async createTemplate(params: CreateTemplateParams) {
     await assertOrgRole(params.userId, params.organisationId, 'member');
 
@@ -487,6 +607,7 @@ export class BundleTemplateService {
       draft: template.draft,
       isExample: template.isExample,
       clonedFrom: template.clonedFrom,
+      starterKey: template.starterKey ?? null,
       createdBy: template.createdBy,
       createdAt: template.createdAt,
       updatedAt: template.updatedAt,

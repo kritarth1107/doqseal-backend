@@ -463,7 +463,7 @@ describe('bundle pipeline', () => {
       await h.pipeline.handleTask(h.lastTask('d_bill'));
       const before = await BundleEvent.countDocuments({ organisationId: ORG_A });
       const res = await h.pipeline.evaluateBundle(ORG_A, 'bi', 'manual');
-      expect(res).toEqual({ status: 'ready_to_run', changed: false });
+      expect(res).toEqual({ status: 'ready_to_run', changed: false, target: 'ready_to_run' });
       expect(await BundleEvent.countDocuments({ organisationId: ORG_A })).toBe(before);
     });
 
@@ -477,7 +477,7 @@ describe('bundle pipeline', () => {
       await h.pipeline.handleTask(h.lastTask('d_bill'));
       await BundleDocument.updateOne({ organisationId: ORG_A, documentId: 'd_bill' }, { $set: { removedAt: new Date() } });
       const res = await h.pipeline.evaluateBundle(ORG_A, 'bi', 'document_removed:1');
-      expect(res).toEqual({ status: 'collecting', changed: true });
+      expect(res).toEqual({ status: 'collecting', changed: true, target: 'collecting' });
     });
   });
 });
