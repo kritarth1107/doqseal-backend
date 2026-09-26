@@ -211,9 +211,21 @@ function dtoToLimits(dto: PlanDto): PlanLimits {
   };
 }
 
+/**
+ * The plan catalogue changes only when it is re-seeded, yet it was read on every
+ * usage/billing request. Keep a short in-process copy.
+ */
+const PLAN_CACHE_TTL_MS = 60_000;
+let activePlansCache: { at: number; value: Promise<PlanDto[]> } | null = null;
+
+export function clearPlanCache(): void {
+  activePlansCache = null;
+}
+
 export class PlanService {
   /** Upsert default catalog on startup. */
   public async seedDefaultPlans(): Promise<number> {
+    clearPlanCache();
     let upserted = 0;
     for (const row of DEFAULT_PLANS) {
       await Plan.findOneAndUpdate(
@@ -245,6 +257,19 @@ export class PlanService {
   }
 
   public async listActivePlans(): Promise<PlanDto[]> {
+    const now = Date.now();
+    if (activePlansCache && now - activePlansCache.at < PLAN_CACHE_TTL_MS) {
+      return activePlansCache.value;
+    }
+    const value = this.loadActivePlans();
+    activePlansCache = { at: now, value };
+    value.catch(() => {
+      if (activePlansCache?.value === value) activePlansCache = null;
+    });
+    return value;
+  }
+
+  private async loadActivePlans(): Promise<PlanDto[]> {
     const docs = await Plan.find({ isActive: true }).sort({ sortOrder: 1 }).lean();
     if (!docs.length) {
       return DEFAULT_PLANS.map((p) =>
@@ -271,6 +296,11 @@ export class PlanService {
   }
 
   public async getPlanById(planId: string): Promise<PlanLimits> {
+    const active = await this.listActivePlans();
+    const cached = active.find((p) => p.id === planId);
+    if (cached) {
+      return dtoToLimits(cached);
+    }
     const doc = await Plan.findOne({ planId, isActive: true }).lean();
     if (doc) {
       return dtoToLimits(docToDto(doc));

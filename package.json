@@ -10,6 +10,7 @@
     "lint": "tsc --noEmit",
     "test": "vitest run",
     "smoke-test": "ts-node scripts/smoke-test.ts",
+    "db:indexes": "ts-node --transpile-only scripts/sync-indexes.ts",
     "seed:stories": "ts-node scripts/seed-stories.ts",
     "seed:assessments": "ts-node scripts/seed-assessments.ts",
     "seed:user-assessment": "ts-node scripts/seed-user-assessment.ts",

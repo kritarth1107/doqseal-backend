@@ -60,20 +60,14 @@ export class OrganisationService {
   }
 
   public async getOrganisationStats(organisationId: string) {
-    const organisation = await Organisation.findOne({
-      publicId: organisationId,
-      deletedAt: null,
-    }).lean();
-
-    if (!organisation) {
-      throw new Error('Organisation not found');
-    }
-
     const weekAgo = new Date();
     weekAgo.setHours(0, 0, 0, 0);
     weekAgo.setDate(weekAgo.getDate() - 6);
 
+    // One parallel batch (the organisation check rides along instead of being
+    // its own round trip), then one follow-up for the recent extractions.
     const [
+      organisation,
       documentCount,
       extractionCount,
       pendingJobs,
@@ -81,6 +75,9 @@ export class OrganisationService {
       recentDocs,
       weekDocs,
     ] = await Promise.all([
+      Organisation.findOne({ publicId: organisationId, deletedAt: null })
+        .select({ _id: 1 })
+        .lean(),
       Document.countDocuments({ organisationId, deletedAt: null }),
       Extraction.countDocuments({ organisationId }),
       ExtractionJob.countDocuments({
@@ -95,6 +92,14 @@ export class OrganisationService {
       Document.find({ organisationId, deletedAt: null })
         .sort({ createdAt: -1 })
         .limit(8)
+        .select({
+          documentId: 1,
+          displayTitle: 1,
+          originalFilename: 1,
+          mimeType: 1,
+          status: 1,
+          createdAt: 1,
+        })
         .lean(),
       Document.find({
         organisationId,
@@ -105,10 +110,22 @@ export class OrganisationService {
         .lean(),
     ]);
 
+    if (!organisation) {
+      throw new Error('Organisation not found');
+    }
+
     const documentIds = recentDocs.map((d) => d.documentId);
     const extractions = documentIds.length
       ? await Extraction.find({ documentId: { $in: documentIds } })
           .sort({ createdAt: -1, version: -1 })
+          .select({
+            documentId: 1,
+            fieldConfidence: 1,
+            'data.category': 1,
+            'data.document_type': 1,
+            createdAt: 1,
+            version: 1,
+          })
           .lean()
       : [];
 

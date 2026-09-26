@@ -22,16 +22,18 @@ export async function assertOrgRole(
   organisationId: string,
   minRole: OrgRole
 ): Promise<{ role: OrgRole }> {
-  const user = await User.findOne({ userId, deletedAt: null }).lean();
+  // User and organisation lookups are independent: run them together so the
+  // check costs two round trips instead of three.
+  const [user, organisation] = await Promise.all([
+    User.findOne({ userId, deletedAt: null }).select({ _id: 1 }).lean(),
+    Organisation.findOne({ publicId: organisationId, deletedAt: null })
+      .select({ _id: 1 })
+      .lean(),
+  ]);
 
   if (!user) {
     throw new Error('User not found');
   }
-
-  const organisation = await Organisation.findOne({
-    publicId: organisationId,
-    deletedAt: null,
-  }).lean();
 
   if (!organisation) {
     throw new Error('Organisation not found');
@@ -41,7 +43,9 @@ export async function assertOrgRole(
     userId,
     organisationId: organisation._id,
     deletedAt: null,
-  }).lean();
+  })
+    .select({ role: 1 })
+    .lean();
 
   if (!membership) {
     throw new Error('You do not have access to this organisation');

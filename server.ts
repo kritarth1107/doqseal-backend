@@ -113,6 +113,7 @@ export class ServerSetup {
 
     // 4. Architectural Hooks
     this.app.addHook('onError', loggerHook.onError);
+    this.app.addHook('onResponse', loggerHook.onResponse);
 
     // 5. Global Error Handling
     this.app.setErrorHandler(errorHandler);
