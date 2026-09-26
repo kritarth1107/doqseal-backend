@@ -40,6 +40,8 @@ import { billingRouter } from './routes/billing.route';
 import { mediaRouter } from './routes/media.route';
 import { domainAccessRouter } from './routes/domainAccess.route';
 import { requestLinkRouter, requestLinkPublicRouter, collectDomainRouter } from './routes/requestLink.route';
+import { bundleTemplateRouter } from './routes/bundleTemplate.route';
+import { bundleRouter } from './routes/bundle.route';
 
 
 
@@ -197,13 +199,23 @@ export class ServerSetup {
     this.app.register(chatRouter, { prefix: `/${apiPrefix}/chat` });
     this.app.register(billingRouter, { prefix: `/${apiPrefix}` });
     this.app.register(mediaRouter, { prefix: `/${apiPrefix}/media` });
-
-
+    this.app.register(bundleTemplateRouter, { prefix: `/${apiPrefix}/bundle-templates` });
+    this.app.register(bundleRouter, { prefix: `/${apiPrefix}/bundles` });
 
     // 404 Handler
     this.app.setNotFoundHandler((request, reply) => {
       return responseUtil.error(reply, `Endpoint ${request.method} ${request.url} not found`, 404);
     });
+  }
+
+  /**
+   * Initializes server without listening (for testing)
+   */
+  public async initialize(): Promise<void> {
+    await this.setupMiddleware();
+    await registerOpenApi(this.app);
+    this.setupRoutes();
+    await this.app.ready();
   }
 
   /**

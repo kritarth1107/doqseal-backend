@@ -17,6 +17,14 @@ export class JobService {
     userContext?: string | null;
     /** Prefer vision/LLM over OCR-only shortcuts (re-runs / user context). */
     forceAi?: boolean;
+    /** Bundle ID when extraction is triggered from a bundle */
+    bundleId?: string | null;
+    /** Document type key from bundle template */
+    typeKey?: string | null;
+    /** Schema fields to extract */
+    extractionSchema?: Record<string, unknown> | null;
+    /** Schema version for cache invalidation */
+    schemaVersion?: string | null;
   }) {
     const { documentId, organisationId, projectId } = params;
     const userContext =
@@ -94,6 +102,10 @@ export class JobService {
       status: 'queued',
       userContext,
       forceAi: Boolean(userContext) || Boolean(params.forceAi),
+      bundleId: params.bundleId || null,
+      typeKey: params.typeKey || null,
+      extractionSchema: params.extractionSchema || null,
+      schemaVersion: params.schemaVersion || null,
     });
 
     await Document.updateOne(
