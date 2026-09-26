@@ -2,6 +2,7 @@ import User from '../model/user.model';
 import Organisation from '../model/organisation.model';
 import Membership from '../model/membership.model';
 import { v4 as uuidv4 } from 'uuid';
+import { profileFeatures } from '../utils/orgFeatures.util';
 
 
 
@@ -34,7 +35,7 @@ export class UserService {
             name: org.name,
             role: userOrg.role,
             logoUrl: org.logoUrl || null,
-            features: { bundles: (org as any).features?.bundles === true },
+            features: profileFeatures((org as any).features),
           });
         }
       }

@@ -62,7 +62,7 @@ async function seedOrg(publicId: string, bundles = true) {
     name: publicId,
     slug: publicId,
     publicId,
-    features: { bundles },
+    features: bundles ? { bundles: true } : { bundles: false, bundlesDisabled: true },
   });
   await BundleTemplateVersion.create({
     templateId: tpl(publicId),
@@ -270,7 +270,7 @@ describe('bundle pipeline', () => {
   });
 
   describe('feature flag', () => {
-    it('does nothing for an organisation without bundles enabled', async () => {
+    it('does nothing for an organisation with case packs switched off', async () => {
       await seedOrg(ORG_B, false);
       await seedBundle(ORG_B, 'bb');
       await seedDocument(ORG_B, 'bb', 'd_b');

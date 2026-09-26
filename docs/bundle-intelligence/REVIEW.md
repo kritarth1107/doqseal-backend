@@ -1,10 +1,14 @@
 # Bundle review API
 
 Endpoints the dashboard uses to review a bundle. All routes sit under
-`/api/v1`, need a user session plus the `x-organisation-id` header, and return
-403 `FEATURE_DISABLED` unless the organisation has `features.bundles = true`.
-Every query is scoped by organisation; a bundle from another organisation is a
-404. Membership and role failures on these endpoints are 403.
+`/api/v1`, need a user session plus the `x-organisation-id` header. Case packs
+are on for every organisation; an organisation with
+`features.bundlesDisabled = true` (the per-organisation kill switch) gets 403
+`FEATURE_DISABLED`. The legacy `features.bundles` field is not read, because
+it was written as `false` by default. Every query is scoped by organisation; a
+bundle from another organisation is a 404. On all bundle and bundle template
+endpoints, a user who is not a member of the organisation (or lacks the role)
+gets 403, an unknown organisation 404 and a missing organisation header 400.
 
 ## Starter templates
 

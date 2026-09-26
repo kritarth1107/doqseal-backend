@@ -56,7 +56,10 @@ export interface IOrganisation extends Document {
 
   /** Feature flags for progressive rollout */
   features?: {
+    /** Legacy flag, no longer read for case packs (see utils/orgFeatures.util.ts) */
     bundles?: boolean;
+    /** Per-organisation kill switch for case packs, which are on by default */
+    bundlesDisabled?: boolean;
     esign?: boolean;
   };
 
@@ -188,10 +191,11 @@ const OrganisationSchema: Schema = new Schema(
     },
     features: {
       type: {
-        bundles: { type: Boolean, default: false },
+        bundles: { type: Boolean, default: true },
+        bundlesDisabled: { type: Boolean },
         esign: { type: Boolean, default: false },
       },
-      default: { bundles: false, esign: false },
+      default: { bundles: true, esign: false },
     },
     deletedAt: {
       type: Date,

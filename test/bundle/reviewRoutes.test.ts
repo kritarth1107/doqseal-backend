@@ -58,7 +58,7 @@ const as = (user: string, org: string) => ({ 'x-test-user': user, 'x-organisatio
 
 beforeEach(async () => {
   await Organisation.create({ name: 'A', slug: 'a', publicId: 'org_a', features: { bundles: true } });
-  await Organisation.create({ name: 'Off', slug: 'off', publicId: 'org_off', features: { bundles: false } });
+  await Organisation.create({ name: 'Off', slug: 'off', publicId: 'org_off', features: { bundles: true, bundlesDisabled: true } });
   await User.create({ userId: 'u_member', name: 'Meera', email: 'm@a.test' });
   await BundleTemplateVersion.create({
     templateId: 'tpl',
@@ -102,7 +102,7 @@ beforeEach(async () => {
 });
 
 describe('bundle review routes', () => {
-  it('answers 403 FEATURE_DISABLED when the organisation does not have bundles', async () => {
+  it('answers 403 FEATURE_DISABLED when case packs are switched off for the organisation', async () => {
     const res = await app.inject({ method: 'GET', url: '/api/v1/bundles', headers: as('u_off', 'org_off') });
     expect(res.statusCode).toBe(403);
     expect(res.json()).toMatchObject({ success: false, code: 'FEATURE_DISABLED' });

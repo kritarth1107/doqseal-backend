@@ -2,7 +2,8 @@
  * Bundle processing pipeline settings. The pipeline is off unless
  * BUNDLE_PIPELINE_ENABLED=true and the ai-engine service secret
  * (AI_ENGINE_JWT_SECRET, or its alias AI_ENGINE_SERVICE_TOKEN) is set; per-org
- * access is additionally gated by organisation.features.bundles.
+ * access follows the organisation's case pack flag (on unless
+ * features.bundlesDisabled is true; see utils/orgFeatures.util.ts).
  */
 import { aiEngineSecret } from '../utils/aiEngineToken.util';
 

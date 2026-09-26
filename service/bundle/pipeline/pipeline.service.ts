@@ -19,6 +19,7 @@ import { ClassifierError, ClassifyFn, ClassifyResult, ClassifySlot } from './cla
 import { checkConsistency } from './consistency';
 import { recordBundleEvent } from './events';
 import { annotateConflicts } from './conflicts';
+import { isOrgFeatureEnabled } from '../../../utils/orgFeatures.util';
 
 export interface ClassifyTaskMessage {
   v: 1;
@@ -130,7 +131,7 @@ export class BundlePipeline {
       { publicId: organisationId, deletedAt: null },
       { features: 1 }
     ).lean();
-    const enabled = (org as any)?.features?.bundles === true;
+    const enabled = Boolean(org) && isOrgFeatureEnabled((org as any).features, 'bundles');
     this.orgFlagCache.set(organisationId, { enabled, at: nowMs });
     return enabled;
   }

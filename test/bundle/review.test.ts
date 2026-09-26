@@ -41,7 +41,7 @@ async function seedOrgs() {
   roles[ORG_A] = { [MEMBER]: 'member', [ADMIN]: 'admin' };
   roles[ORG_B] = { [OUTSIDER]: 'owner' };
   await Organisation.create({ name: 'A', slug: 'a', publicId: ORG_A, features: { bundles: true } });
-  await Organisation.create({ name: 'B', slug: 'b', publicId: ORG_B, features: { bundles: false } });
+  await Organisation.create({ name: 'B', slug: 'b', publicId: ORG_B, features: { bundles: false, bundlesDisabled: true } });
   await User.create({ userId: MEMBER, name: 'Meera Member', email: 'm@a.test' });
   await User.create({ userId: ADMIN, name: 'Arjun Admin', email: 'a@a.test' });
   await User.create({ userId: OUTSIDER, name: 'Other Org', email: 'b@b.test' });
@@ -440,7 +440,7 @@ describe('bundle list', () => {
 });
 
 describe('profile features and errors', () => {
-  it('exposes the bundles flag per organisation', async () => {
+  it('exposes the effective bundles flag per organisation (kill switch on B)', async () => {
     await User.updateOne(
       { userId: MEMBER },
       { $set: { organisations: [{ organisationId: ORG_A, role: 'member' }, { organisationId: ORG_B, role: 'member' }] } }

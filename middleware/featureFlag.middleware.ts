@@ -2,12 +2,13 @@ import { FastifyRequest, FastifyReply } from 'fastify';
 import Organisation from '../model/organisation.model';
 import { resolveOrganisationId } from '../utils/org-access.util';
 import { FeatureDisabledError } from '../utils/errors.util';
+import { isOrgFeatureEnabled, type OrgFeatures } from '../utils/orgFeatures.util';
 
 export type FeatureName = 'bundles' | 'esign';
 
 /**
- * Creates a preHandler that checks if a feature is enabled for the organisation.
- * Returns 403 if the feature is not enabled.
+ * Creates a preHandler that checks if a feature is enabled for the organisation
+ * (see utils/orgFeatures.util.ts for the defaults). Returns 403 if it is not.
  */
 export function requireFeature(feature: FeatureName) {
   return async function featureFlagHandler(
@@ -25,12 +26,7 @@ export function requireFeature(feature: FeatureName) {
       throw new FeatureDisabledError(feature);
     }
 
-    const features = (org as any).features as
-      | Record<string, boolean>
-      | undefined;
-    const isEnabled = features?.[feature] === true;
-
-    if (!isEnabled) {
+    if (!isOrgFeatureEnabled((org as any).features as OrgFeatures, feature)) {
       throw new FeatureDisabledError(feature);
     }
   };
@@ -53,6 +49,5 @@ export async function isFeatureEnabled(
     return false;
   }
 
-  const features = (org as any).features as Record<string, boolean> | undefined;
-  return features?.[feature] === true;
+  return isOrgFeatureEnabled((org as any).features as OrgFeatures, feature);
 }

@@ -2,7 +2,6 @@ import { FastifyRequest, FastifyReply } from 'fastify';
 import bundleTemplateService from '../service/bundleTemplate.service';
 import responseUtil from '../utils/response.util';
 import { resolveOrganisationId } from '../utils/org-access.util';
-import { isAppError } from '../utils/errors.util';
 import { sendBundleError } from '../utils/bundleHttp.util';
 
 export class BundleTemplateController {
@@ -33,11 +32,8 @@ export class BundleTemplateController {
         result,
         201
       );
-    } catch (error: any) {
-      if (isAppError(error)) {
-        return responseUtil.error(reply, error.message, error.statusCode);
-      }
-      return responseUtil.error(reply, error.message || 'Failed to create template', 500);
+    } catch (error: unknown) {
+      return sendBundleError(reply, error, 'Failed to create template');
     }
   }
 
@@ -55,11 +51,8 @@ export class BundleTemplateController {
       );
 
       return responseUtil.success(reply, 'Template retrieved successfully', result);
-    } catch (error: any) {
-      if (isAppError(error)) {
-        return responseUtil.error(reply, error.message, error.statusCode);
-      }
-      return responseUtil.error(reply, error.message || 'Failed to retrieve template', 500);
+    } catch (error: unknown) {
+      return sendBundleError(reply, error, 'Failed to retrieve template');
     }
   }
 
@@ -93,11 +86,8 @@ export class BundleTemplateController {
         200,
         result.pagination
       );
-    } catch (error: any) {
-      if (isAppError(error)) {
-        return responseUtil.error(reply, error.message, error.statusCode);
-      }
-      return responseUtil.error(reply, error.message || 'Failed to list templates', 500);
+    } catch (error: unknown) {
+      return sendBundleError(reply, error, 'Failed to list templates');
     }
   }
 
@@ -125,11 +115,8 @@ export class BundleTemplateController {
       });
 
       return responseUtil.success(reply, 'Template updated successfully', result);
-    } catch (error: any) {
-      if (isAppError(error)) {
-        return responseUtil.error(reply, error.message, error.statusCode);
-      }
-      return responseUtil.error(reply, error.message || 'Failed to update template', 500);
+    } catch (error: unknown) {
+      return sendBundleError(reply, error, 'Failed to update template');
     }
   }
 
@@ -147,11 +134,8 @@ export class BundleTemplateController {
       );
 
       return responseUtil.success(reply, 'Template deleted successfully', result);
-    } catch (error: any) {
-      if (isAppError(error)) {
-        return responseUtil.error(reply, error.message, error.statusCode);
-      }
-      return responseUtil.error(reply, error.message || 'Failed to delete template', 500);
+    } catch (error: unknown) {
+      return sendBundleError(reply, error, 'Failed to delete template');
     }
   }
 
@@ -171,11 +155,8 @@ export class BundleTemplateController {
       });
 
       return responseUtil.success(reply, 'Template published successfully', result);
-    } catch (error: any) {
-      if (isAppError(error)) {
-        return responseUtil.error(reply, error.message, error.statusCode);
-      }
-      return responseUtil.error(reply, error.message || 'Failed to publish template', 500);
+    } catch (error: unknown) {
+      return sendBundleError(reply, error, 'Failed to publish template');
     }
   }
 
@@ -193,11 +174,8 @@ export class BundleTemplateController {
       );
 
       return responseUtil.success(reply, 'Versions retrieved successfully', result);
-    } catch (error: any) {
-      if (isAppError(error)) {
-        return responseUtil.error(reply, error.message, error.statusCode);
-      }
-      return responseUtil.error(reply, error.message || 'Failed to list versions', 500);
+    } catch (error: unknown) {
+      return sendBundleError(reply, error, 'Failed to list versions');
     }
   }
 
@@ -219,11 +197,8 @@ export class BundleTemplateController {
       );
 
       return responseUtil.success(reply, 'Version retrieved successfully', result);
-    } catch (error: any) {
-      if (isAppError(error)) {
-        return responseUtil.error(reply, error.message, error.statusCode);
-      }
-      return responseUtil.error(reply, error.message || 'Failed to retrieve version', 500);
+    } catch (error: unknown) {
+      return sendBundleError(reply, error, 'Failed to retrieve version');
     }
   }
 
@@ -249,11 +224,8 @@ export class BundleTemplateController {
         result,
         201
       );
-    } catch (error: any) {
-      if (isAppError(error)) {
-        return responseUtil.error(reply, error.message, error.statusCode);
-      }
-      return responseUtil.error(reply, error.message || 'Failed to clone template', 500);
+    } catch (error: unknown) {
+      return sendBundleError(reply, error, 'Failed to clone template');
     }
   }
 

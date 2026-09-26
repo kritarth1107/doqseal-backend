@@ -15,7 +15,7 @@ completeness and status evaluation runs regardless, see REVIEW.md):
 | `BUNDLE_PIPELINE_ENABLED` | backend env | `true` |
 | `AI_ENGINE_JWT_SECRET` (alias `AI_ENGINE_SERVICE_TOKEN`) | backend and ai-engine env | the same long random secret on both; signs short-lived service JWTs (also used by chat) |
 | `AI_ENGINE_URL` | backend env | already set (used by chat) |
-| `features.bundles` | organisation document | `true` |
+| `features.bundlesDisabled` | organisation document | not `true` (case packs are on by default; `true` is the per-organisation kill switch) |
 
 Optional tuning (backend): `BUNDLE_CLASSIFY_QUEUE` (default `bundle.classify`),
 `BUNDLE_CLASSIFY_RETRY_DELAY_MS` (30000), `BUNDLE_CLASSIFY_PREFETCH` (4),

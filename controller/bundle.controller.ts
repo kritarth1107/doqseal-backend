@@ -2,7 +2,6 @@ import { FastifyRequest, FastifyReply } from 'fastify';
 import bundleService from '../service/bundle.service';
 import responseUtil from '../utils/response.util';
 import { resolveOrganisationId } from '../utils/org-access.util';
-import { isAppError } from '../utils/errors.util';
 import { sendBundleError } from '../utils/bundleHttp.util';
 
 export class BundleController {
@@ -34,11 +33,8 @@ export class BundleController {
       });
 
       return responseUtil.success(reply, 'Bundle created successfully', result, 201);
-    } catch (error: any) {
-      if (isAppError(error)) {
-        return responseUtil.error(reply, error.message, error.statusCode);
-      }
-      return responseUtil.error(reply, error.message || 'Failed to create bundle', 500);
+    } catch (error: unknown) {
+      return sendBundleError(reply, error, 'Failed to create bundle');
     }
   }
 
@@ -56,11 +52,8 @@ export class BundleController {
       );
 
       return responseUtil.success(reply, 'Bundle retrieved successfully', result);
-    } catch (error: any) {
-      if (isAppError(error)) {
-        return responseUtil.error(reply, error.message, error.statusCode);
-      }
-      return responseUtil.error(reply, error.message || 'Failed to retrieve bundle', 500);
+    } catch (error: unknown) {
+      return sendBundleError(reply, error, 'Failed to retrieve bundle');
     }
   }
 
@@ -102,11 +95,8 @@ export class BundleController {
         200,
         result.pagination
       );
-    } catch (error: any) {
-      if (isAppError(error)) {
-        return responseUtil.error(reply, error.message, error.statusCode);
-      }
-      return responseUtil.error(reply, error.message || 'Failed to list bundles', 500);
+    } catch (error: unknown) {
+      return sendBundleError(reply, error, 'Failed to list bundles');
     }
   }
 
@@ -138,11 +128,8 @@ export class BundleController {
       });
 
       return responseUtil.success(reply, 'Bundle updated successfully', result);
-    } catch (error: any) {
-      if (isAppError(error)) {
-        return responseUtil.error(reply, error.message, error.statusCode);
-      }
-      return responseUtil.error(reply, error.message || 'Failed to update bundle', 500);
+    } catch (error: unknown) {
+      return sendBundleError(reply, error, 'Failed to update bundle');
     }
   }
 
@@ -162,11 +149,8 @@ export class BundleController {
       );
 
       return responseUtil.success(reply, 'Bundle deleted successfully', result);
-    } catch (error: any) {
-      if (isAppError(error)) {
-        return responseUtil.error(reply, error.message, error.statusCode);
-      }
-      return responseUtil.error(reply, error.message || 'Failed to delete bundle', 500);
+    } catch (error: unknown) {
+      return sendBundleError(reply, error, 'Failed to delete bundle');
     }
   }
 
@@ -190,11 +174,8 @@ export class BundleController {
       });
 
       return responseUtil.success(reply, 'Documents attached successfully', result);
-    } catch (error: any) {
-      if (isAppError(error)) {
-        return responseUtil.error(reply, error.message, error.statusCode);
-      }
-      return responseUtil.error(reply, error.message || 'Failed to attach documents', 500);
+    } catch (error: unknown) {
+      return sendBundleError(reply, error, 'Failed to attach documents');
     }
   }
 
@@ -216,11 +197,8 @@ export class BundleController {
       );
 
       return responseUtil.success(reply, 'Document removed successfully', result);
-    } catch (error: any) {
-      if (isAppError(error)) {
-        return responseUtil.error(reply, error.message, error.statusCode);
-      }
-      return responseUtil.error(reply, error.message || 'Failed to remove document', 500);
+    } catch (error: unknown) {
+      return sendBundleError(reply, error, 'Failed to remove document');
     }
   }
 
@@ -244,11 +222,8 @@ export class BundleController {
       });
 
       return responseUtil.success(reply, 'Document type updated successfully', result);
-    } catch (error: any) {
-      if (isAppError(error)) {
-        return responseUtil.error(reply, error.message, error.statusCode);
-      }
-      return responseUtil.error(reply, error.message || 'Failed to update document', 500);
+    } catch (error: unknown) {
+      return sendBundleError(reply, error, 'Failed to update document');
     }
   }
 
@@ -288,11 +263,8 @@ export class BundleController {
       );
 
       return responseUtil.success(reply, 'Document uploaded successfully', result, 201);
-    } catch (error: any) {
-      if (isAppError(error)) {
-        return responseUtil.error(reply, error.message, error.statusCode);
-      }
-      return responseUtil.error(reply, error.message || 'Failed to upload document', 500);
+    } catch (error: unknown) {
+      return sendBundleError(reply, error, 'Failed to upload document');
     }
   }
 
@@ -316,11 +288,8 @@ export class BundleController {
       });
 
       return responseUtil.success(reply, 'Run created', result, 202);
-    } catch (error: any) {
-      if (isAppError(error)) {
-        return responseUtil.error(reply, error.message, error.statusCode);
-      }
-      return responseUtil.error(reply, error.message || 'Failed to create run', 500);
+    } catch (error: unknown) {
+      return sendBundleError(reply, error, 'Failed to create run');
     }
   }
 
@@ -338,11 +307,8 @@ export class BundleController {
       );
 
       return responseUtil.success(reply, 'Runs retrieved successfully', result);
-    } catch (error: any) {
-      if (isAppError(error)) {
-        return responseUtil.error(reply, error.message, error.statusCode);
-      }
-      return responseUtil.error(reply, error.message || 'Failed to list runs', 500);
+    } catch (error: unknown) {
+      return sendBundleError(reply, error, 'Failed to list runs');
     }
   }
 
@@ -364,11 +330,8 @@ export class BundleController {
       );
 
       return responseUtil.success(reply, 'Run retrieved successfully', result);
-    } catch (error: any) {
-      if (isAppError(error)) {
-        return responseUtil.error(reply, error.message, error.statusCode);
-      }
-      return responseUtil.error(reply, error.message || 'Failed to retrieve run', 500);
+    } catch (error: unknown) {
+      return sendBundleError(reply, error, 'Failed to retrieve run');
     }
   }
 
